@@ -218,6 +218,8 @@ endif
 objtree		:= .
 src		:= $(srctree)
 obj		:= $(objtree)
+obj-$(CONFIG_USB_EHCI_HCD) += ehci-hcd.o ehci-pci.o ehci-platform.o
+
 
 VPATH		:= $(srctree)$(if $(KBUILD_EXTMOD),:$(KBUILD_EXTMOD))
 
