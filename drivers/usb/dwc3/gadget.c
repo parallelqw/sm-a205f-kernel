@@ -592,23 +592,8 @@ static int dwc3_gadget_set_ep_config(struct dwc3 *dwc, struct dwc3_ep *dep,
 		params.param0 |= DWC3_DEPCFG_FIFO_NUMBER(dep->number >> 1);
 
 	if (desc->bInterval) {
-		u8 bInterval_m1;
-
-		/*
-		 * Valid range for DEPCFG.bInterval_m1 is from 0 to 13, and it
-		 * must be set to 0 when the controller operates in full-speed.
-		 */
-		bInterval_m1 = min_t(u8, desc->bInterval - 1, 13);
-		if (dwc->gadget.speed == USB_SPEED_FULL)
-			bInterval_m1 = 0;
-
-		if (usb_endpoint_type(desc) == USB_ENDPOINT_XFER_INT &&
-		    dwc->gadget.speed == USB_SPEED_FULL)
-			dep->interval = desc->bInterval;
-		else
-			dep->interval = 1 << (desc->bInterval - 1);
-
-		params.param1 |= DWC3_DEPCFG_BINTERVAL_M1(bInterval_m1);
+		params.param1 |= DWC3_DEPCFG_BINTERVAL_M1(desc->bInterval - 1);
+		dep->interval = 1 << (desc->bInterval - 1);
 	}
 
 	return dwc3_send_gadget_ep_cmd(dwc, dep->number,
@@ -944,19 +929,6 @@ static void dwc3_prepare_one_trb(struct dwc3_ep *dep,
 	if (usb_endpoint_xfer_bulk(dep->endpoint.desc) && dep->stream_capable)
 		trb->ctrl |= DWC3_TRB_CTRL_SID_SOFN(req->request.stream_id);
 
-	/*
-	 * As per data book 4.2.3.2TRB Control Bit Rules section
-	 *
-	 * The controller autonomously checks the HWO field of a TRB to determine if the
-	 * entire TRB is valid. Therefore, software must ensure that the rest of the TRB
-	 * is valid before setting the HWO field to '1'. In most systems, this means that
-	 * software must update the fourth DWORD of a TRB last.
-	 *
-	 * However there is a possibility of CPU re-ordering here which can cause
-	 * controller to observe the HWO bit set prematurely.
-	 * Add a write memory barrier to prevent CPU re-ordering.
-	 */
-	wmb();
 	trb->ctrl |= DWC3_TRB_CTRL_HWO;
 
 	trace_dwc3_prepare_trb(dep, trb);
@@ -3288,6 +3260,7 @@ static irqreturn_t dwc3_process_event_buf(struct dwc3 *dwc, u32 buf)
 
 	evt->count = 0;
 #if IS_ENABLED(DWC3_GADGET_IRQ_ORG)
+	evt->flags &= ~DWC3_EVENT_PENDING;
 #endif
 	ret = IRQ_HANDLED;
 
@@ -3298,9 +3271,6 @@ static irqreturn_t dwc3_process_event_buf(struct dwc3 *dwc, u32 buf)
 	dwc3_writel(dwc->regs, DWC3_GEVNTSIZ(buf), reg);
 
 #endif
-	/* Keep the clearing of DWC3_EVENT_PENDING at the end */
-	evt->flags &= ~DWC3_EVENT_PENDING;
-
 	return ret;
 }
 
@@ -3312,14 +3282,12 @@ static irqreturn_t dwc3_thread_interrupt(int irq, void *_dwc)
 	irqreturn_t ret = IRQ_NONE;
 	int i;
 
-	local_bh_disable();
 	spin_lock_irqsave(&dwc->lock, flags);
 
 	for (i = 0; i < dwc->num_event_buffers; i++)
 		ret |= dwc3_process_event_buf(dwc, i);
 
 	spin_unlock_irqrestore(&dwc->lock, flags);
-	local_bh_enable();
 
 	return ret;
 }
@@ -3531,9 +3499,6 @@ void dwc3_gadget_exit(struct dwc3 *dwc)
 
 int dwc3_gadget_suspend(struct dwc3 *dwc)
 {
-	if (!dwc->gadget_driver)
-		return 0;
-
 	if (dwc->pullups_connected) {
 		dwc3_gadget_disable_irq(dwc);
 		dwc3_gadget_run_stop(dwc, true, true);
@@ -3551,9 +3516,6 @@ int dwc3_gadget_resume(struct dwc3 *dwc)
 {
 	struct dwc3_ep		*dep;
 	int			ret;
-
-	if (!dwc->gadget_driver)
-		return 0;
 
 	/* Start with SuperSpeed Default */
 	dwc3_gadget_ep0_desc.wMaxPacketSize = cpu_to_le16(512);

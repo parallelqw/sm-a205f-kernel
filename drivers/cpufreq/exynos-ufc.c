@@ -19,7 +19,6 @@
 #include <linux/pm_opp.h>
 
 #include <soc/samsung/exynos-cpu_hotplug.h>
-#include <soc/samsung/cal-if.h>
 
 #include "exynos-acme.h"
 
@@ -159,14 +158,14 @@ static ssize_t store_cpufreq_min_limit(struct kobject *kobj,
 		scale++;
 
 		if (set_limit) {
-			req_limit_freq = min(req_limit_freq, (unsigned int)cal_dfs_get_max_freq(domain->cal_id));
+			req_limit_freq = min(req_limit_freq, domain->max_freq);
 			pm_qos_update_request(&domain->user_min_qos_req, req_limit_freq);
 			set_limit = false;
 			continue;
 		}
 
 		if (set_max) {
-			unsigned int qos = cal_dfs_get_max_freq(domain->cal_id);
+			unsigned int qos = domain->max_freq;
 
 			if (domain->user_default_qos)
 				qos = domain->user_default_qos;
@@ -211,7 +210,7 @@ static ssize_t store_cpufreq_min_limit(struct kobject *kobj,
 				set_limit = true;
 		}
 
-		freq = min(freq, (unsigned int)cal_dfs_get_max_freq(domain->cal_id));
+		freq = min(freq, domain->max_freq);
 		pm_qos_update_request(&domain->user_min_qos_req, freq);
 
 		/*
@@ -289,14 +288,14 @@ static ssize_t store_cpufreq_min_limit_wo_boost(struct kobject *kobj,
 		scale++;
 
 		if (set_limit) {
-			req_limit_freq = min(req_limit_freq, (unsigned int)cal_dfs_get_max_freq(domain->cal_id));
+			req_limit_freq = min(req_limit_freq, domain->max_freq);
 			pm_qos_update_request(&domain->user_min_qos_req, req_limit_freq);
 			set_limit = false;
 			continue;
 		}
 
 		if (set_max) {
-			unsigned int qos = cal_dfs_get_max_freq(domain->cal_id);
+			unsigned int qos = domain->max_freq;
 
 			if (domain->user_default_qos)
 				qos = domain->user_default_qos;
@@ -340,7 +339,7 @@ static ssize_t store_cpufreq_min_limit_wo_boost(struct kobject *kobj,
 				set_limit = true;
 		}
 
-		freq = min(freq, (unsigned int)cal_dfs_get_max_freq(domain->cal_id));
+		freq = min(freq, domain->max_freq);
 		pm_qos_update_request(&domain->user_min_qos_wo_boost_req, freq);
 
 		set_max = true;
@@ -559,18 +558,9 @@ static int parse_ufc_ctrl_info(struct exynos_cpufreq_domain *domain,
 					struct device_node *dn)
 {
 	unsigned int val;
-#ifdef CONFIG_EUREKA_CUSTOM_DT_NODES
-	unsigned int ekval;
-#endif
 
-	if (!of_property_read_u32(dn, "user-default-qos", &val)) {
-#ifdef CONFIG_EUREKA_CUSTOM_DT_NODES
-		if (!of_property_read_u32(dn, "eureka_user-default-qos", &ekval))
-			domain->user_default_qos = ekval;
-#else
+	if (!of_property_read_u32(dn, "user-default-qos", &val))
 		domain->user_default_qos = val;
-#endif
-	}
 
 	return 0;
 }
@@ -629,7 +619,7 @@ static int __init init_ufc_table_dt(struct exynos_cpufreq_domain *domain,
 	struct device_node *child;
 	struct exynos_ufc_freq *table;
 	struct exynos_ufc *ufc;
-	int size, index, c_index, bc_index;
+	int size, index, c_index;
 	int ret;
 
 	ufc = list_entry(&domain->ufc_list, struct exynos_ufc, list);
@@ -671,49 +661,10 @@ static int __init init_ufc_table_dt(struct exynos_cpufreq_domain *domain,
 				if (freq <= table[c_index].master_freq)
 					ufc->info.freq_table[index].limit_freq = table[c_index].limit_freq;
 
-				// PM_QOS_MAX_LIMIT control type
-				if(ufc->info.ctrl_type==2) {
-					// Big cores' frequencies
-					int arr[17] = {2496000,2392000,2288000,2184000,2080000,1976000,1872000,1768000,1664000,1560000,1352000,1144000,936000,728000,520000,312000,208000};
-
-				 	for (bc_index = 0; bc_index <= 2; bc_index++) {
-						if (freq == arr[bc_index])					/* 2496000 && 2392000 && 2288000 kHz */
-							ufc->info.freq_table[index].limit_freq=1898000;
-					}
-					for (bc_index = 3; bc_index <= 16; bc_index++) {
-						if (freq == arr[3])						/* 2184000 kHz */
-							ufc->info.freq_table[index].limit_freq=1794000;
-						if (freq == arr[4] || freq == arr[5])				/* 2080000 && 1976000 kHz */
-							ufc->info.freq_table[index].limit_freq=1690000;
-						if (freq == arr[6])						/* 1872000 kHz */
-							ufc->info.freq_table[index].limit_freq=1586000;
-						if (freq == arr[7])						/* 1768000 kHz */
-							ufc->info.freq_table[index].limit_freq=1482000;
-						if (freq == arr[8])						/* 1664000 kHz */
-							ufc->info.freq_table[index].limit_freq=1352000;
-						if (freq == arr[9])						/* 1560000 kHz */
-							ufc->info.freq_table[index].limit_freq=1248000;
-						if (freq == arr[10])						/* 1352000 kHz */
-							ufc->info.freq_table[index].limit_freq=1144000;
-						if (freq == arr[11])						/* 1144000 kHz */
-							ufc->info.freq_table[index].limit_freq=1014000;
-						if (freq == arr[12])						/* 936000 kHz */
-							ufc->info.freq_table[index].limit_freq=902000;
-						if (freq == arr[13])						/* 728000 kHz */
-							ufc->info.freq_table[index].limit_freq=839000;
-						if (freq == arr[14])						/* 520000 kHz */
-							ufc->info.freq_table[index].limit_freq=757000;
-						if (freq == arr[15])						/* 312000 kHz */
-							ufc->info.freq_table[index].limit_freq=676000;
-						if (freq == arr[16])						/* 208000 kHz */
-							ufc->info.freq_table[index].limit_freq=546000;
-					}
-				}
-
 				if (freq >= table[c_index].master_freq)
 					break;
 			}
-			pr_info("Master_freq : %u kHz - limit_freq : %u kHz, Chatur_UFC\n",
+			pr_info("Master_freq : %u kHz - limit_freq : %u kHz\n",
 					ufc->info.freq_table[index].master_freq,
 					ufc->info.freq_table[index].limit_freq);
 		}

@@ -91,8 +91,10 @@ void putback_active_hugepage(struct page *page);
 void free_huge_page(struct page *page);
 void hugetlb_fix_reserve_counts(struct inode *inode, bool restore_reserve);
 extern struct mutex *hugetlb_fault_mutex_table;
-u32 hugetlb_fault_mutex_hash(struct hstate *h, struct address_space *mapping,
-				pgoff_t idx);
+u32 hugetlb_fault_mutex_hash(struct hstate *h, struct mm_struct *mm,
+				struct vm_area_struct *vma,
+				struct address_space *mapping,
+				pgoff_t idx, unsigned long address);
 
 pte_t *huge_pmd_share(struct mm_struct *mm, unsigned long addr, pud_t *pud);
 
@@ -380,10 +382,7 @@ static inline struct hstate *hstate_sizelog(int page_size_log)
 	if (!page_size_log)
 		return &default_hstate;
 
-	if (page_size_log < BITS_PER_LONG)
-		return size_to_hstate(1UL << page_size_log);
-
-	return NULL;
+	return size_to_hstate(1UL << page_size_log);
 }
 
 static inline struct hstate *hstate_vma(struct vm_area_struct *vma)
@@ -507,9 +506,6 @@ static inline void hugetlb_count_sub(long l, struct mm_struct *mm)
 {
 	atomic_long_sub(l, &mm->hugetlb_usage);
 }
-
-void set_page_huge_active(struct page *page);
-
 #else	/* CONFIG_HUGETLB_PAGE */
 struct hstate {};
 #define alloc_huge_page(v, a, r) NULL
@@ -565,17 +561,5 @@ static inline spinlock_t *huge_pte_lock(struct hstate *h,
 	spin_lock(ptl);
 	return ptl;
 }
-
-#ifdef CONFIG_ARCH_WANT_HUGE_PMD_SHARE
-static inline bool hugetlb_pmd_shared(pte_t *pte)
-{
-	return page_count(virt_to_page(pte)) > 1;
-}
-#else
-static inline bool hugetlb_pmd_shared(pte_t *pte)
-{
-	return false;
-}
-#endif
 
 #endif /* _LINUX_HUGETLB_H */

@@ -59,7 +59,7 @@
 #include "mali_kbase_fence_defs.h"
 #endif
 
-#if 0
+#ifdef CONFIG_DEBUG_FS
 #include <linux/debugfs.h>
 #endif /* CONFIG_DEBUG_FS */
 
@@ -125,11 +125,6 @@
  * Minimum size in bytes of a MMU lock region, as a logarithm
  */
 #define KBASE_LOCK_REGION_MIN_SIZE_LOG2 (15)
-
-/**
- * Maximum number of GPU memory region zones
- */
-#define KBASE_REG_ZONE_MAX 4ul
 
 #include "mali_kbase_hwaccess_defs.h"
 
@@ -640,9 +635,6 @@ struct kbase_devfreq_queue_info {
  * @total_gpu_pages:    Total gpu pages allocated across all the contexts
  *                      of this process, it accounts for both native allocations
  *                      and dma_buf imported allocations.
- * @dma_buf_pages:      Total dma_buf pages allocated across all the contexts
- *                      of this process, native allocations can be accounted for
- *                      by subtracting this from &total_gpu_pages.
  * @kctx_list:          List of kbase contexts created for the process.
  * @kprcs_node:         Node to a rb_tree, kbase_device will maintain a rb_tree
  *                      based on key tgid, kprcs_node is the node link to
@@ -652,19 +644,14 @@ struct kbase_devfreq_queue_info {
  *                      Used to ensure that pages of allocation are accounted
  *                      only once for the process, even if the allocation gets
  *                      imported multiple times for the process.
- * @kobj:               Links to the per-process sysfs node
- *                      &kbase_device.proc_sysfs_node.
  */
 struct kbase_process {
 	pid_t tgid;
 	size_t total_gpu_pages;
-    size_t dma_buf_pages;
 	struct list_head kctx_list;
 
 	struct rb_node kprcs_node;
 	struct rb_root dma_buf_root;
-
-    struct kobject kobj;
 };
 
 /**
@@ -924,13 +911,11 @@ struct kbase_process {
  *                          mapping and gpu memory usage at device level and
  *                          other one at process level.
  * @total_gpu_pages:        Total GPU pages used for the complete GPU device.
- * @dma_buf_pages:          Total dma_buf pages used for GPU platform device.
  * @dma_buf_lock:           This mutex should be held while accounting for
  *                          @total_gpu_pages from imported dma buffers.
  * @gpu_mem_usage_lock:     This spinlock should be held while accounting
  *                          @total_gpu_pages for both native and dma-buf imported
  *                          allocations.
- * @proc_sysfs_node:        Sysfs directory node to store per-process stats.
  */
 struct kbase_device {
 	u32 hw_quirks_sc;
@@ -1077,7 +1062,7 @@ struct kbase_device {
 
 	atomic_t job_fault_debug;
 
-#if 0
+#ifdef CONFIG_DEBUG_FS
 	struct dentry *mali_debugfs_directory;
 	struct dentry *debugfs_ctx_directory;
 
@@ -1104,7 +1089,7 @@ struct kbase_device {
 
 	atomic_t ctx_num;
 
-#if 0
+#ifdef CONFIG_DEBUG_FS
 	struct kbase_io_history io_history;
 #endif /* CONFIG_DEBUG_FS */
 
@@ -1179,7 +1164,6 @@ struct kbase_device {
 	struct rb_root dma_buf_root;
 
 	size_t total_gpu_pages;
-    size_t dma_buf_pages;
 	struct mutex dma_buf_lock;
 	spinlock_t gpu_mem_usage_lock;
 
@@ -1194,8 +1178,6 @@ struct kbase_device {
 		/* Pointer to the arbiter device */
 		struct kbase_arbiter_device arb;
 #endif
-
-        struct kobject *proc_sysfs_node;
 };
 
 /**
@@ -1343,21 +1325,6 @@ struct kbase_sub_alloc {
 };
 
 /**
- * struct kbase_reg_zone - Information about GPU memory region zones
- * @base_pfn: Page Frame Number in GPU virtual address space for the start of
- *            the Zone
- * @va_size_pages: Size of the Zone in pages
- *
- * Track information about a zone KBASE_REG_ZONE() and related macros.
- * In future, this could also store the &rb_root that are currently in
- * &kbase_context
- */
-struct kbase_reg_zone {
-	u64 base_pfn;
-	u64 va_size_pages;
-};
-
-/**
  * struct kbase_context - Kernel base context
  *
  * @filp:                 Pointer to the struct file corresponding to device file
@@ -1407,7 +1374,6 @@ struct kbase_reg_zone {
  * @reg_rbtree_exec:      RB tree of the memory regions allocated from the EXEC_VA
  *                        zone of the GPU virtual address space. Used for GPU-executable
  *                        allocations which don't need the SAME_VA property.
- * @reg_zone:             Zone information for the reg_rbtree_<...> members.
  * @cookies:              Bitmask containing of BITS_PER_LONG bits, used mainly for
  *                        SAME_VA allocations to defer the reservation of memory region
  *                        (from the GPU virtual address space) from base_mem_alloc
@@ -1482,6 +1448,9 @@ struct kbase_reg_zone {
  *                        created the context. Used for accounting the physical
  *                        pages used for GPU allocations, done for the context,
  *                        to the memory consumed by the process.
+ * @same_va_end:          End address of the SAME_VA zone (in 4KB page units)
+ * @exec_va_start:        Start address of the EXEC_VA zone (in 4KB page units)
+ *                        or U64_MAX if the EXEC_VA zone is uninitialized.
  * @gpu_va_end:           End address of the GPU va space (in 4KB page units)
  * @jit_va:               Indicates if a JIT_VA zone has been created.
  * @mem_profile_data:     Buffer containing the profiling information provided by
@@ -1645,7 +1614,6 @@ struct kbase_context {
 	struct rb_root reg_rbtree_same;
 	struct rb_root reg_rbtree_custom;
 	struct rb_root reg_rbtree_exec;
-	struct kbase_reg_zone reg_zone[KBASE_REG_ZONE_MAX];
 
 	struct kbase_jd_context jctx;
 	struct jsctx_queue jsctx_queue
@@ -1706,10 +1674,12 @@ struct kbase_context {
 
 	spinlock_t         mm_update_lock;
 	struct mm_struct __rcu *process_mm;
+	u64 same_va_end;
+	u64 exec_va_start;
 	u64 gpu_va_end;
 	bool jit_va;
 
-#if 0
+#ifdef CONFIG_DEBUG_FS
 	char *mem_profile_data;
 	size_t mem_profile_size;
 	struct mutex mem_profile_lock;

@@ -30,13 +30,12 @@ int __init five_init(void)
 {
 	int rc;
 
-	rc = five_keyring_init();
-	if (rc)
-		return rc;
-	rc = five_load_built_x509();
-	if (rc)
-		return rc;
-	rc = five_init_crypto();
+	five_keyring_init();
+	five_load_built_x509();
 
-	return rc;
+	rc = five_init_crypto();
+	if (rc)
+		return rc;
+
+	return 0;
 }

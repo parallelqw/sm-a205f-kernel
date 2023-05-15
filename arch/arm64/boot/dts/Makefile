@@ -1,55 +1,37 @@
-# SPDX-License-Identifier: GPL-2.0
-dtb-y += exynos/dtb/exynos7885.dtb
+dts-dirs += altera
+dts-dirs += amd
+dts-dirs += apm
+dts-dirs += arm
+dts-dirs += broadcom
+dts-dirs += cavium
+dts-dirs += exynos
+dts-dirs += freescale
+dts-dirs += hisilicon
+dts-dirs += marvell
+dts-dirs += mediatek
+dts-dirs += qcom
+dts-dirs += rockchip
+dts-dirs += sprd
+dts-dirs += xilinx
 
-dtbo-$(CONFIG_MACH_EXYNOS7885_A10_OPEN) := \
-	exynos/dtbo/exynos7884B-a10_eur_open_00.dtbo \
-	exynos/dtbo/exynos7884B-a10_eur_open_01.dtbo \
-	exynos/dtbo/exynos7884B-a10_kor_open_00.dtbo \
-	exynos/dtbo/exynos7884B-a10_kor_open_03.dtbo \
-	exynos/dtbo/exynos7884B-a10_kor_open_05.dtbo \
-	exynos/dtbo/exynos7884B-a10_sea_open_00.dtbo \
-	exynos/dtbo/exynos7884B-a10_swa_open_00.dtbo
+subdir-y	:= $(dts-dirs)
 
-dtbo-$(CONFIG_MACH_EXYNOS7885_A20_GLOBAL) := \
-	exynos/dtbo/exynos7884B-a20_cis_ser_00.dtbo \
-	exynos/dtbo/exynos7884B-a20_cis_ser_01.dtbo \
-	exynos/dtbo/exynos7884B-a20_cis_ser_03.dtbo \
-	exynos/dtbo/exynos7884B-a20_aus_xsa_00.dtbo \
-	exynos/dtbo/exynos7884B-a20_aus_xsa_01.dtbo \
-	exynos/dtbo/exynos7884B-a20_aus_xsa_03.dtbo \
-	exynos/dtbo/exynos7884B-a20_can_single_03.dtbo \
-	exynos/dtbo/exynos7884B-a20_can_single_05.dtbo \
-	exynos/dtbo/exynos7884B-a20_sea_xtc_00.dtbo \
-	exynos/dtbo/exynos7884B-a20_sea_xtc_01.dtbo \
-	exynos/dtbo/exynos7884B-a20_sea_xtc_03.dtbo \
-	exynos/dtbo/exynos7884B-a20_swa_open_00.dtbo \
-	exynos/dtbo/exynos7884B-a20_swa_open_01.dtbo \
-	exynos/dtbo/exynos7884B-a20_swa_open_03.dtbo
+dtstree		:= $(srctree)/$(src)
 
-dtbo-$(CONFIG_MACH_EXYNOS7885_A20e_OPEN) := \
-	exynos/dtbo/exynos7884B-a20e_eur_open_00.dtbo \
-	exynos/dtbo/exynos7884B-a20e_eur_open_03.dtbo
+dtb-$(CONFIG_OF_ALL_DTBS) := $(patsubst $(dtstree)/%.dts,%.dtb, $(foreach d,$(dts-dirs), $(wildcard $(dtstree)/$(d)/*.dts)))
 
-dtbo-$(CONFIG_MACH_EXYNOS7885_A30_OPEN) := \
-	exynos/dtbo/exynos7904-a30_cis_open_00.dtbo \
-	exynos/dtbo/exynos7904-a30_cis_open_01.dtbo \
-	exynos/dtbo/exynos7904-a30_cis_open_02.dtbo \
-	exynos/dtbo/exynos7904-a30_swa_open_00.dtbo \
-	exynos/dtbo/exynos7904-a30_swa_open_01.dtbo \
-	exynos/dtbo/exynos7904-a30_swa_open_02.dtbo
+always		:= $(dtb-y) $(dtbo-y)
 
-dtbo-$(CONFIG_MACH_EXYNOS7885_A30s_OPEN) := \
-	exynos/dtbo/exynos7904-a30s_eur_open_00.dtbo \
-	exynos/dtbo/exynos7904-a30s_eur_open_01.dtbo \
-	exynos/dtbo/exynos7904-a30s_eur_open_02.dtbo \
-	exynos/dtbo/exynos7904-a30s_eur_open_03.dtbo
+targets += dtbs
 
-dtbo-$(CONFIG_MACH_EXYNOS7885_A40_OPEN) := \
-	exynos/dtbo/exynos7904-a40_eur_open_00.dtbo \
-	exynos/dtbo/exynos7904-a40_eur_open_01.dtbo
+DTB_NAMES := $(subst $\",,$(CONFIG_BUILD_ARM64_APPENDED_DTB_IMAGE_NAMES))
+ifneq ($(DTB_NAMES),)
+DTB_LIST := $(addsuffix .dtb,$(DTB_NAMES))
+else
+DTB_LIST := $(dtb-y) $(dtbo-y)
+endif
+targets += $(DTB_LIST)
 
-dtbo-$(CONFIG_MACH_EXYNOS7885_M20_OPEN) := \
-	exynos/dtbo/exynos7904-m20lte_swa_open_04.dtbo
+dtbs: $(addprefix $(obj)/, $(DTB_LIST))
 
-always         := $(dtb-y) $(dtbo-y)
-clean-files    := *.dtb *.dtbo
+clean-files := dts/*.dtb *.dtb*

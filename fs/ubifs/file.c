@@ -782,9 +782,8 @@ static int ubifs_do_bulk_read(struct ubifs_info *c, struct bu_info *bu,
 
 		if (page_offset > end_index)
 			break;
-		page = pagecache_get_page(mapping, page_offset,
-				 FGP_LOCK|FGP_ACCESSED|FGP_CREAT|FGP_NOWAIT,
-				 GFP_NOFS | __GFP_COLD);
+		page = find_or_create_page(mapping, page_offset,
+					   GFP_NOFS | __GFP_COLD);
 		if (!page)
 			break;
 		if (!PageUptodate(page))
@@ -1026,7 +1025,7 @@ static int ubifs_writepage(struct page *page, struct writeback_control *wbc)
 		if (page->index >= synced_i_size >> PAGE_CACHE_SHIFT) {
 			err = inode->i_sb->s_op->write_inode(inode, NULL);
 			if (err)
-				goto out_redirty;
+				goto out_unlock;
 			/*
 			 * The inode has been written, but the write-buffer has
 			 * not been synchronized, so in case of an unclean
@@ -1054,17 +1053,11 @@ static int ubifs_writepage(struct page *page, struct writeback_control *wbc)
 	if (i_size > synced_i_size) {
 		err = inode->i_sb->s_op->write_inode(inode, NULL);
 		if (err)
-			goto out_redirty;
+			goto out_unlock;
 	}
 
 	return do_writepage(page, len);
-out_redirty:
-	/*
-	 * redirty_page_for_writepage() won't call ubifs_dirty_inode() because
-	 * it passes I_DIRTY_PAGES flag while calling __mark_inode_dirty(), so
-	 * there is no need to do space budget for dirty inode.
-	 */
-	redirty_page_for_writepage(wbc, page);
+
 out_unlock:
 	unlock_page(page);
 	return err;

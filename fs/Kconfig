@@ -12,12 +12,6 @@ config INTERRUPTIBLE_SYNC
 	bool "Support interruptible sync for Samsung Mobile Device"
 	default y
 
-config DYNAMIC_FSYNC
-	bool "dynamic file sync control"
-	default n
-	help
-	  An experimental file sync control using new power_suspend driver 
-
 if BLOCK
 
 source "fs/ext2/Kconfig"
@@ -115,7 +109,6 @@ menu "DOS/FAT/NT Filesystems"
 source "fs/fat/Kconfig"
 source "fs/sdfat/Kconfig"
 source "fs/ntfs/Kconfig"
-source "fs/ntfs3/Kconfig"
 
 endmenu
 endif # BLOCK
@@ -297,8 +290,3 @@ source "fs/nls/Kconfig"
 source "fs/dlm/Kconfig"
 
 endmenu
-
-config BLOCK_UNWANTED_FILES
-	bool "Allow blocking files from executing from kernel"
-	help
-	  This option allows you to make files from certain folders un-openable.

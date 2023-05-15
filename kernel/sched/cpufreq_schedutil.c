@@ -358,7 +358,6 @@ err:
 	return ERR_PTR(err);
 }
 
-/*
 static ssize_t freqvar_boost_show(struct gov_attr_set *attr_set, char *buf)
 {
 	struct sugov_tunables *tunables = to_sugov_tunables(attr_set);
@@ -371,7 +370,6 @@ static ssize_t freqvar_boost_show(struct gov_attr_set *attr_set, char *buf)
 					pos->boost / SCHEDTUNE_LOAD_BOOST_UTIT);
 	return ret;
 }
-*/
 
 static ssize_t freqvar_boost_store(struct gov_attr_set *attr_set, const char *buf,
 				   size_t count)
@@ -391,7 +389,7 @@ static ssize_t freqvar_boost_store(struct gov_attr_set *attr_set, const char *bu
 
 	return count;
 }
-static struct governor_attr freqvar_boost = __ATTR_WO(freqvar_boost);
+static struct governor_attr freqvar_boost = __ATTR_RW(freqvar_boost);
 #endif /* CONFIG_FREQVAR_SCHEDTUNE */
 
 static struct governor_attr rate_limit_us = __ATTR_RW(rate_limit_us);

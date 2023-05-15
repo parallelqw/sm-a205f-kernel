@@ -215,7 +215,6 @@ static void dvb_register_media_device(struct dvb_device *dvbdev,
 				       GFP_KERNEL);
 		if (!dvbdev->pads) {
 			kfree(dvbdev->entity);
-			dvbdev->entity = NULL;
 			return;
 		}
 	}

@@ -19,7 +19,6 @@
 #include <sound/pcm.h>
 #include <sound/pcm_params.h>
 #include <sound/soc.h>
-#include <sound/jack.h>
 #include <sound/initval.h>
 #include <sound/tlv.h>
 #include <sound/samsung/abox.h>
@@ -28,7 +27,6 @@
 #include <linux/gpio.h>
 #include <linux/of.h>
 #include <linux/of_gpio.h>
-#include <linux/switch.h>
 #include <linux/input.h>
 #include <linux/completion.h>
 #include <uapi/linux/input-event-codes.h>
@@ -37,10 +35,6 @@
 #include <soc/samsung/acpm_mfd.h>
 #include <sound/cod3035x.h>
 #include "cod3035x.h"
-
-#ifdef CONFIG_EUREKA_SOUND_CONTROL
-#include "eureka_sound_control.h"
-#endif
 
 #define COD3035X_SAMPLE_RATE_48KHZ	48000
 #define COD3035X_SAMPLE_RATE_192KHZ	192000
@@ -1082,10 +1076,6 @@ static int cod3035x_capture_deinit(struct snd_soc_codec *codec)
 
 	mutex_lock(&cod3035x->adc_mute_lock);
 	snd_soc_write(codec, COD3035X_44_IF1_FORMAT4, 0xFF);
-	if ((cod3035x->oneui_version == 2) || (cod3035x->oneui_version == 0)) {
-		/* disable ADC digital mute after configuring ADC */
-		cod3035x_adc_digital_mute(codec, false);
-	}
 	mutex_unlock(&cod3035x->adc_mute_lock);
 
 	return 0;
@@ -1108,10 +1098,6 @@ static int cod3035x_dmic_capture_deinit(struct snd_soc_codec *codec)
 
 	mutex_lock(&cod3035x->adc_mute_lock);
 	snd_soc_write(codec, COD3035X_44_IF1_FORMAT4, 0xFF);
-	if ((cod3035x->oneui_version == 2) || (cod3035x->oneui_version == 0)) {
-		/* disable ADC digital mute after configuring ADC */
-		cod3035x_adc_digital_mute(codec, false);
-	}
 	mutex_unlock(&cod3035x->adc_mute_lock);
 	return 0;
 }
@@ -2316,9 +2302,9 @@ static int epdrv_ev(struct snd_soc_dapm_widget *w,
 		msleep(136);
 
 		/* damping down the DC offset
-	 	* 0xD7 : DC offset
-	 	* 0xDA : temporary storage
-	 	*/
+		* 0xD7 : DC offset
+		* 0xDA : temporary storage
+		*/
 		if (cod3035x->model_feature_flag & MODEL_FLAG_EP_DC_OFFSET_SWEEP)
 			dampdown_dc_offset(codec);
 
@@ -3613,28 +3599,6 @@ void send_status_to_audioframework(struct input_dev *input, int jack_det_status)
 	input_sync(input);
 }
 
-void send_status_to_audioframework_legacy(struct switch_dev *sdev, int jack_det_status)
-{
-	switch (jack_det_status) {
-		case JACK_3POLE:
-		case JACK_ANT_3POLE:
-			switch_set_state(sdev, 2);	/* 3 Pole */
-			break;
-		case JACK_4POLE:
-		case JACK_ANT_4POLE:
-			switch_set_state(sdev, 1);	/* 4 Pole */
-			break;
-		case JACK_OUT:
-			switch_set_state(sdev, 0);
-			break;
-		case JACK_ANT:
-			switch_set_state(sdev, 256);
-			break;
-		default : /* jack out */
-			break;
-	}
-}
-
 void set_micbias_manual_mode(struct snd_soc_codec* codec)
 {
 	/* mic bias manual mode */
@@ -3777,24 +3741,15 @@ static void cod3035x_jack_det_work(struct work_struct *work)
 	}
 
 	/* Send the jack detect event to the audio framework */
-	if (cod3035x->oneui_version == 3) {
-		if (jackdet->jack_det && jackdet->mic_det)
-			input_report_switch(cod3035x->input, SW_MICROPHONE_INSERT, 1); /* 4 Pole */
-		else if (jackdet->jack_det)
-			input_report_switch(cod3035x->input, SW_HEADPHONE_INSERT, 1); /* 3 Pole */
-		else {
-			input_report_switch(cod3035x->input, SW_MICROPHONE_INSERT, 0);
-			input_report_switch(cod3035x->input, SW_HEADPHONE_INSERT, 0);
-		}
-		input_sync(cod3035x->input);
-	} else if ((cod3035x->oneui_version == 2) || (cod3035x->oneui_version == 0)) {
-                if (jackdet->jack_det && jackdet->mic_det)
-			switch_set_state(&cod3035x->sdev, 1);	/* 4 Pole */
-		else if (jackdet->jack_det)
-			switch_set_state(&cod3035x->sdev, 2);	/* 3 Pole */
-		else
-			switch_set_state(&cod3035x->sdev, 0);
+	if (jackdet->jack_det && jackdet->mic_det)
+		input_report_switch(cod3035x->input, SW_MICROPHONE_INSERT, 1); /* 4 Pole */
+	else if (jackdet->jack_det)
+		input_report_switch(cod3035x->input, SW_HEADPHONE_INSERT, 1); /* 3 Pole */
+	else {
+		input_report_switch(cod3035x->input, SW_MICROPHONE_INSERT, 0);
+		input_report_switch(cod3035x->input, SW_HEADPHONE_INSERT, 0);
 	}
+	input_sync(cod3035x->input);
 
 	if (cod3035x->is_suspend)
 	    regcache_cache_only(cod3035x->regmap, false);
@@ -3916,10 +3871,7 @@ static void cod3035x_jack_det_work(struct work_struct *work)
 			jackdet->prev_jack_det_status);
 
 		jackdet->prev_jack_det_status = jack_det_status;
-		if (cod3035x->oneui_version == 3)
-			send_status_to_audioframework(cod3035x->input, jack_det_status);
-		else if (cod3035x->oneui_version == 2)
-			send_status_to_audioframework_legacy(&(cod3035x->sdev), jack_det_status);
+		send_status_to_audioframework(cod3035x->input, jack_det_status);
 	} else {
 		dev_dbg(cod3035x->dev, "%s prev_jack_det_status(%d)\n", __func__,
 				jackdet->prev_jack_det_status);
@@ -4293,10 +4245,7 @@ static void cod3035x_jack_report_work(struct work_struct *work)
 		dev_info(cod3035x->dev, "%s current jack_det_status(%d) == prev_jack_det_status(%d)\n",
 				__func__, jackdet->prev_jack_det_status, jack_det_status);
 
-		if (cod3035x->oneui_version == 3)
-			send_status_to_audioframework(cod3035x->input, jack_det_status);
-		else if  (cod3035x->oneui_version == 2)
-			send_status_to_audioframework_legacy(&(cod3035x->sdev), jack_det_status);
+		send_status_to_audioframework(cod3035x->input, jack_det_status);
 	}
 	
 	mutex_unlock(&cod3035x->jackreport_lock);
@@ -4309,24 +4258,10 @@ int cod3035x_jack_mic_register(struct snd_soc_codec *codec)
 	struct device *dev = cod3035x->dev;
 	int i, ret;
 
-	if (cod3035x->oneui_version == 3) {
-		cod3035x->input = devm_input_allocate_device(dev);
-		if (!cod3035x->input) {
-			dev_err(dev, "Failed to allocate switch input device\n");
-			return -ENOMEM;
-		}
-	} else if ((cod3035x->oneui_version == 2) || (cod3035x->oneui_version == 0)) {
-		cod3035x->sdev.name = "h2w";
-
-		ret = switch_dev_register(&cod3035x->sdev);
-		if (ret < 0)
-			dev_err(codec->dev, "Switch registration failed\n");
-
-		cod3035x->input = devm_input_allocate_device(codec->dev);
-		if (!cod3035x->input) {
-			dev_err(dev, "Failed to allocate switch input device\n");
-			return -ENOMEM;
-		}
+	cod3035x->input = devm_input_allocate_device(dev);
+	if (!cod3035x->input) {
+		dev_err(dev, "Failed to allocate switch input device\n");
+		return -ENOMEM;
 	}
 
 	/* Not handling Headset events for now.Headset event handling
@@ -4335,46 +4270,29 @@ int cod3035x_jack_mic_register(struct snd_soc_codec *codec)
 	 * after proper fix.
 	 */
 	cod3035x->input->name = "Codec3035 Headset Events";
-	if (cod3035x->oneui_version == 3)
-		cod3035x->input->phys = dev_name(dev);
-	else if (cod3035x->oneui_version == 2)
-		cod3035x->input->phys = dev_name(codec->dev);
-
+	cod3035x->input->phys = dev_name(dev);
 	cod3035x->input->id.bustype = BUS_I2C;
-
-	if ((cod3035x->oneui_version == 2) || (cod3035x->oneui_version == 0)) {
-		cod3035x->input->evbit[0] = BIT_MASK(EV_KEY);
-		for (i = 0; i < 4; i++)
-			set_bit(cod3035x->jack_buttons_zones[i].code, cod3035x->input->keybit);
-		cod3035x->input->dev.parent = codec->dev;
-		input_set_drvdata(cod3035x->input, codec);
-	}
 
 	ret = input_register_device(cod3035x->input);
 	if (ret != 0) {
 		cod3035x->input = NULL;
-		if (cod3035x->oneui_version == 3)
-			dev_err(dev, "Failed to register 3035 input device\n");
-		else if (cod3035x->oneui_version == 2)
-			dev_err(codec->dev, "Failed to register 3035 input device\n");
+		dev_err(dev, "Failed to register 3035 input device\n");
 	}
 
-	if (cod3035x->oneui_version == 3) {
-		/*
-		 * input_set_capability (dev, type, code)
-		 * @dev : input device
-		 * @type : event type (EV_KEY, EV_SW, etc...)
-		 * @code : event code (4POLE, 3POLE, LINE...)
-		 */
-		/* 3-Pole event */
-		input_set_capability(cod3035x->input, EV_SW, SW_HEADPHONE_INSERT);
-		/* 4-Pole event */
-		input_set_capability(cod3035x->input, EV_SW, SW_MICROPHONE_INSERT);
-		/* Button event */
-		for (i = 0; i < 4; i++)
-			input_set_capability(cod3035x->input, EV_KEY,
-					cod3035x->jack_buttons_zones[i].code);
-	}
+	/*
+	 * input_set_capability (dev, type, code)
+	 * @dev : input device
+	 * @type : event type (EV_KEY, EV_SW, etc...)
+	 * @code : event code (4POLE, 3POLE, LINE...)
+	 */
+	/* 3-Pole event */
+	input_set_capability(cod3035x->input, EV_SW, SW_HEADPHONE_INSERT);
+	/* 4-Pole event */
+	input_set_capability(cod3035x->input, EV_SW, SW_MICROPHONE_INSERT);
+	/* Button event */
+	for (i = 0; i < 4; i++)
+		input_set_capability(cod3035x->input, EV_KEY,
+				cod3035x->jack_buttons_zones[i].code);
 
 #ifdef CONFIG_PM
 	pm_runtime_get_sync(codec->dev);
@@ -4758,7 +4676,6 @@ static void cod3035x_i2c_parse_dt(struct cod3035x_priv *cod3035x)
 	unsigned int rcv_drv_current;
 	unsigned int feature_flag;
 	u8 lassenA_rev = 0;
-	int eureka_kernel_variant;
 #ifdef CONFIG_SND_SOC_COD30XX_EXT_ANT
 	int ant_range;
 #endif
@@ -4962,20 +4879,6 @@ static void cod3035x_i2c_parse_dt(struct cod3035x_priv *cod3035x)
 
 	if (of_find_property(dev->of_node, "dis-ovp-det-mode", NULL) != NULL)
 		cod3035x->dis_ovp_det_mode = true;
-
-	ret = of_property_read_u32(dev->of_node, "eureka_kernel_variant",
-			&eureka_kernel_variant);
-	if (!ret) {
-		if (eureka_kernel_variant == 3)
-			cod3035x->oneui_version = 3;	// OneUI 3
-		else if (eureka_kernel_variant == 2)
-			cod3035x->oneui_version = 2;	// OneUI 2
-		else if (eureka_kernel_variant == 1)
-			cod3035x->oneui_version = 1;	// RESERVED
-		else
-			cod3035x->oneui_version = 0;	// AOSP
-	} else
-		cod3035x->oneui_version = 2;		// Default to OneUI 2 if eureka_kernel_variant is not found in DTB
 
 	/*
 	 * For use lassen A revision chipset,
@@ -5391,13 +5294,6 @@ static int cod3035x_codec_probe(struct snd_soc_codec *codec)
 
 	cod3035x_i2c_parse_dt(cod3035x);
 
-#ifdef CONFIG_EUREKA_SOUND_CONTROL
-	// Hook only if on AOSP
-	if (cod3035x->oneui_version == 0) {
-		eureka_sound_control_hook_probe(cod3035x->regmap);
-	}
-#endif
-
 #if defined(CONFIG_SND_SOC_COD30XX_EXT_ANT)
 	if (cod3035x->dtv_detect) {
 		INIT_DELAYED_WORK(&cod3035x->jack_report_work, cod3035x_jack_report_work);
@@ -5422,10 +5318,8 @@ static int cod3035x_codec_probe(struct snd_soc_codec *codec)
 #endif
 	wake_lock_init(&cod3035x->codec_wake_lock, WAKE_LOCK_SUSPEND, "codec_wl");
 
-	if (cod3035x->oneui_version == 3) {
-		/* it should be modify to move machine driver */
-		cod3035x_jack_mic_register(codec);
-	}
+	/* it should be modify to move machine driver */
+	cod3035x_jack_mic_register(codec);
 
 	/*
 	 * interrupt pin should be shared with pmic.
@@ -5452,11 +5346,6 @@ static int cod3035x_codec_probe(struct snd_soc_codec *codec)
 		snd_soc_write(codec, COD3035X_E9_PRESET_AVC, 0x1F);
 		snd_soc_write(codec, COD3035X_EA_PRESET_AVC, 0x1F);
 		snd_soc_write(codec, COD3035X_E1_PRESET_AVC, 0x22);
-	}
-
-	if ((cod3035x->oneui_version == 2) || (cod3035x->oneui_version == 0)) {
-		/* it should be modify to move machine driver */
-		cod3035x_jack_mic_register(codec);
 	}
 
 #ifdef CONFIG_SND_SOC_COD30XX_EXT_ANT

@@ -882,9 +882,6 @@ static __init void set_boot_qos(struct exynos_cpufreq_domain *domain,
 					struct device_node *dn)
 {
 	unsigned int boot_qos, val;
-#ifdef CONFIG_EUREKA_CUSTOM_DT_NODES
-	unsigned int ekval;
-#endif
 
 	/*
 	 * Basically booting pm_qos is set to max frequency of domain.
@@ -893,14 +890,8 @@ static __init void set_boot_qos(struct exynos_cpufreq_domain *domain,
 	 * between max frequency of domain and the value defined in device tree.
 	 */
 	boot_qos = domain->max_freq;
-	if (!of_property_read_u32(dn, "pm_qos-booting", &val)) {
-#ifdef CONFIG_EUREKA_CUSTOM_DT_NODES
-		if (!of_property_read_u32(dn, "eureka_pm_qos-booting", &ekval))
-			boot_qos = min(boot_qos, ekval);
-#else
+	if (!of_property_read_u32(dn, "pm_qos-booting", &val))
 		boot_qos = min(boot_qos, val);
-#endif
-	}
 
 	pm_qos_update_request_timeout(&domain->min_qos_req,
 			boot_qos, 40 * USEC_PER_SEC);
@@ -1003,10 +994,6 @@ static int init_constraint_table_dt(struct exynos_cpufreq_domain *domain,
 {
 	struct exynos_dm_freq *table;
 	int size, index, c_index;
-	int bc_freq[14] = {2496000,2392000,2288000,2184000,2080000,1976000,1872000,1768000,1664000,1560000,936000,728000,520000,312000};
-	int lc_freq[15] = {2002000,1898000,1794000,1690000,1586000,1482000,1248000,1014000,902000,839000,757000,676000,546000,449000,343000};
-	int cc_freq[3] = {1352000,1144000,208000};
-	int bc_index, lc_index;
 
 	/*
 	 * A DVFS Manager table row consists of CPU and MIF frequency
@@ -1034,68 +1021,10 @@ static int init_constraint_table_dt(struct exynos_cpufreq_domain *domain,
 				dm->c.freq_table[index].constraint_freq
 					= table[c_index].constraint_freq;
 
-			// Big cores' specific frequencies
-		 	for (bc_index = 0; bc_index <= 6; bc_index++) {
-				if (freq == bc_freq[bc_index])
-					dm->c.freq_table[index].constraint_freq=1794000;
-			}
-			for (bc_index = 7; bc_index <= 8; bc_index++) {
-				if (freq == bc_freq[bc_index])
-					dm->c.freq_table[index].constraint_freq=1539000;
-			}
-			for (bc_index = 9; bc_index <= 9; bc_index++) {
-				if (freq == bc_freq[bc_index])
-					dm->c.freq_table[index].constraint_freq=1352000;
-			}
-			for (bc_index = 10; bc_index <= 10; bc_index++) {
-				if (freq == bc_freq[bc_index])
-					dm->c.freq_table[index].constraint_freq=676000;
-			}
-			for (bc_index = 11; bc_index <= 12; bc_index++) {
-				if (freq == bc_freq[bc_index])
-					dm->c.freq_table[index].constraint_freq=546000;
-			}
-			for (bc_index = 13; bc_index <= 13; bc_index++) {
-				if (freq == bc_freq[bc_index])
-					dm->c.freq_table[index].constraint_freq=420000;
-			}
-
-			// Little cores' specific frequencies
-		 	for (lc_index = 0; lc_index <= 6; lc_index++) {
-				if (freq == lc_freq[lc_index])
-					dm->c.freq_table[index].constraint_freq=1014000;
-			}
-			for (lc_index = 7; lc_index <= 7; lc_index++) {
-				if (freq == lc_freq[lc_index])
-					dm->c.freq_table[index].constraint_freq=845000;
-			}
-			for (lc_index = 8; lc_index <= 9; lc_index++) {
-				if (freq == lc_freq[lc_index])
-					dm->c.freq_table[index].constraint_freq=676000;
-			}
-			for (lc_index = 10; lc_index <= 11; lc_index++) {
-				if (freq == lc_freq[lc_index])
-					dm->c.freq_table[index].constraint_freq=546000;
-			}
-			for (lc_index = 12; lc_index <= 13; lc_index++) {
-				if (freq == lc_freq[lc_index])
-					dm->c.freq_table[index].constraint_freq=420000;
-			}
-
-			// Common frequencies for big and little cores
-			if (freq == cc_freq[0])
-				dm->c.freq_table[index].constraint_freq=1014000;
-			if (freq == cc_freq[1])
-				dm->c.freq_table[index].constraint_freq=845000;
-			if (freq == cc_freq[2])
-				dm->c.freq_table[index].constraint_freq=420000;
-
 			if (freq >= table[c_index].master_freq)
 				break;
 
 		}
-		pr_info("  Freq : %u kHz, MIF constraint_freq : %u kHz, Chatur_MIF_CFT\n",
-			freq, dm->c.freq_table[index].constraint_freq);
 	}
 
 	kfree(table);
@@ -1160,9 +1089,6 @@ static __init int init_domain(struct exynos_cpufreq_domain *domain,
 {
 	unsigned int val;
 	int ret;
-#ifdef CONFIG_EUREKA_CUSTOM_DT_NODES
-	unsigned int ekval;
-#endif
 
 	mutex_init(&domain->lock);
 
@@ -1172,59 +1098,19 @@ static __init int init_domain(struct exynos_cpufreq_domain *domain,
 
 	/*
 	 * If max-freq property exists in device tree, max frequency is
-	 * selected to the value defined in device tree (ignoring ECT limit)
-	 * If min-freq property exists in device tree, min frequency is
-	 * selected to the value defined in device tree
+	 * selected to smaller one between the value defined in device
+	 * tree and CAL. In case of min-freq, min frequency is selected
+	 * to bigger one.
 	 */
 #ifndef CONFIG_EXYNOS_HOTPLUG_GOVERNOR
-	if (!of_property_read_u32(dn, "max-freq", &val)) {
-#ifdef CONFIG_EUREKA_CUSTOM_DT_NODES
-		if (!of_property_read_u32(dn, "eureka_max-freq", &ekval))
-			domain->max_freq = ekval;
-#else
-		if (domain->id == 0) {
-			domain->max_freq = 1690000;
-		} else if (domain->id == 1) {
-	                domain->max_freq = 2080000;
-		}
+	if (!of_property_read_u32(dn, "max-freq", &val))
+		domain->max_freq = min(domain->max_freq, val);
 #endif
-	}
-#endif
-	if (!of_property_read_u32(dn, "min-freq", &val)) {
-#ifdef CONFIG_EUREKA_CUSTOM_DT_NODES
-		if (!of_property_read_u32(dn, "eureka_min-freq", &ekval))
-			domain->min_freq = ekval;
-#else
-		domain->min_freq = val;
-#endif
-	}
+	if (!of_property_read_u32(dn, "min-freq", &val))
+		domain->min_freq = max(domain->min_freq, val);
 
 	domain->boot_freq = cal_dfs_get_boot_freq(domain->cal_id);
 	domain->resume_freq = cal_dfs_get_resume_freq(domain->cal_id);
-	// Allow phone to boot with max frequency and increase resume_freq by 1 level
-#ifdef CONFIG_EUREKA_CUSTOM_DT_NODES
-	if (domain->id == 0)
-	{
-		domain->boot_freq = domain->max_freq;
-		domain->resume_freq = 1144000;
-	}
-	else if (domain->id == 1)
-	{
-		domain->boot_freq = domain->max_freq;
-		domain->resume_freq = 1560000;
-	}
-#else
-        if (domain->id == 0)
-        {
-                domain->boot_freq = 1690000;
-                domain->resume_freq = 1144000;
-        }
-        else if (domain->id == 1)
-        {
-                domain->boot_freq = 2080000;
-                domain->resume_freq = 1560000;
-        }
-#endif
 
 	/* Initialize freq boost */
 	if (domain->boost_supported) {

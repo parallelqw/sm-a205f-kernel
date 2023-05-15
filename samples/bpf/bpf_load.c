@@ -157,13 +157,9 @@ static int load_maps(struct bpf_map_def *maps, int len)
 		map_fd[i] = bpf_create_map(maps[i].type,
 					   maps[i].key_size,
 					   maps[i].value_size,
-					   maps[i].max_entries,
-					   maps[i].map_flags);
-		if (map_fd[i] < 0) {
-			printf("failed to create a map: %d %s\n",
-			       errno, strerror(errno));
+					   maps[i].max_entries);
+		if (map_fd[i] < 0)
 			return 1;
-		}
 
 		if (maps[i].type == BPF_MAP_TYPE_PROG_ARRAY)
 			prog_array_fd = map_fd[i];
@@ -340,7 +336,7 @@ void read_trace_pipe(void)
 		static char buf[4096];
 		ssize_t sz;
 
-		sz = read(trace_fd, buf, sizeof(buf) - 1);
+		sz = read(trace_fd, buf, sizeof(buf));
 		if (sz > 0) {
 			buf[sz] = 0;
 			puts(buf);

@@ -14,7 +14,6 @@
 #include <net/netlink.h>
 #include <linux/netdevice.h>
 #include <linux/ieee80211.h>
-#include <linux/igmp.h>
 #include "mib.h"
 #include <scsc/scsc_mx.h>
 #include <scsc/scsc_log_collector.h>
@@ -210,39 +209,7 @@ static void slsi_machexstring_to_macarray(char *mac_str, u8 *mac_arr)
 	mac_arr[5] = slsi_parse_hex(mac_str[15]) << 4 | slsi_parse_hex(mac_str[16]);
 }
 
-void slsi_update_multicast_addr(struct slsi_dev *sdev, struct net_device *dev)
-{
-	struct netdev_vif *ndev_vif = netdev_priv(dev);
-	struct in_device *in_dev = NULL;
-	struct ip_mc_list *im = NULL;
-	static __be32 multicast_ip_list[65] = {0};
-	int size = 0, i = 0, ip_found = 0;
-
-	WARN_ON(!SLSI_MUTEX_IS_LOCKED(ndev_vif->vif_mutex));
-	WARN_ON(ndev_vif->vif_type != FAPI_VIFTYPE_STATION);
-	in_dev = __in_dev_get_rtnl(dev);
-	if (!in_dev)
-		return;
-
-	for (im = rtnl_dereference(in_dev->mc_list); im != NULL; im = rtnl_dereference(im->next_rcu)) {
-		ip_found = 0;
-		for (i = 0; i < size; i++) {
-			if (!memcmp(&im->multiaddr, &multicast_ip_list[i], sizeof(__be32))) {
-				ip_found = 1;
-				break;
-			}
-		}
-		if (!ip_found) {
-			memcpy(&multicast_ip_list[size], &im->multiaddr, sizeof(__be32));
-			size++;
-		}
-		if (size >= 65)
-			break;
-	}
-	slsi_mlme_set_multicast_ip(sdev, dev, multicast_ip_list, size);
-}
-
-static int slsi_set_suspend_mode(struct net_device *dev, char *command, int cmd_len)
+static ssize_t slsi_set_suspend_mode(struct net_device *dev, char *command, int cmd_len)
 {
 	struct netdev_vif *netdev_vif = netdev_priv(dev);
 	struct slsi_dev   *sdev = netdev_vif->sdev;
@@ -266,6 +233,7 @@ static int slsi_set_suspend_mode(struct net_device *dev, char *command, int cmd_
 	SLSI_MUTEX_LOCK(sdev->device_config_mutex);
 	previous_suspend_mode = sdev->device_config.user_suspend_mode;
 	SLSI_MUTEX_UNLOCK(sdev->device_config_mutex);
+
 	if (user_suspend_mode != previous_suspend_mode) {
 		SLSI_MUTEX_LOCK(sdev->netdev_add_remove_mutex);
 		for (vif = 1; vif <= CONFIG_SCSC_WLAN_MAX_INTERFACES; vif++) {
@@ -280,13 +248,10 @@ static int slsi_set_suspend_mode(struct net_device *dev, char *command, int cmd_
 			if (ndev_vif->activated &&
 			    ndev_vif->vif_type == FAPI_VIFTYPE_STATION &&
 			    ndev_vif->sta.vif_status == SLSI_VIF_STATUS_CONNECTED) {
-				if (user_suspend_mode) {
+				if (user_suspend_mode)
 					ret = slsi_update_packet_filters(sdev, dev);
-					if (sdev->igmp_offload_activated)
-						slsi_update_multicast_addr(sdev, dev);
-				} else {
+				else
 					ret = slsi_clear_packet_filters(sdev, dev);
-				}
 				if (ret != 0)
 					SLSI_NET_ERR(dev, "Error in updating /clearing the packet filters,ret=%d", ret);
 			}
@@ -442,7 +407,7 @@ static ssize_t slsi_p2p_ecsa(struct net_device *dev, char *command, int buf_len)
 	u16 center_freq = 0;
 	u16 chan_info = 0;
 	struct cfg80211_chan_def chandef;
-	enum nl80211_band band;
+	enum ieee80211_band band;
 	enum nl80211_channel_type chan_type = NL80211_CHAN_NO_HT;
 
 	ioctl_args = slsi_get_private_command_args(command, buf_len, 2);
@@ -481,11 +446,11 @@ static ssize_t slsi_p2p_ecsa(struct net_device *dev, char *command, int buf_len)
 		goto exit;
 	}
 
-	band = (channel <= 14) ? NL80211_BAND_2GHZ : NL80211_BAND_5GHZ;
+	band = (channel <= 14) ? IEEE80211_BAND_2GHZ : IEEE80211_BAND_5GHZ;
 	center_freq = ieee80211_channel_to_frequency(channel, band);
 	SLSI_DBG1(sdev, SLSI_CFG80211, "p2p ecsa_params (center_freq)= (%d)\n", center_freq);
 	chandef.chan = ieee80211_get_channel(sdev->wiphy, center_freq);
-	chandef.width = (band  == NL80211_BAND_2GHZ) ? NL80211_CHAN_WIDTH_20_NOHT : NL80211_CHAN_WIDTH_80;
+	chandef.width = (band  == IEEE80211_BAND_2GHZ) ? NL80211_CHAN_WIDTH_20_NOHT : NL80211_CHAN_WIDTH_80;
 
 #ifndef SSB_4963_FIXED
 	/* Default HT40 configuration */
@@ -502,7 +467,7 @@ static ssize_t slsi_p2p_ecsa(struct net_device *dev, char *command, int buf_len)
 #endif
 	if (channel == 165 && bandwidth != 20) {
 		bandwidth = 20;
-		chan_type = (enum nl80211_channel_type) NL80211_CHAN_WIDTH_20;
+		chan_type = NL80211_CHAN_WIDTH_20;
 	}
 	cfg80211_chandef_create(&chandef, chandef.chan, chan_type);
 	chan_info = slsi_get_chann_info(sdev, &chandef);
@@ -736,7 +701,7 @@ static int slsi_p2p_lo_start(struct net_device *dev, char *command, int cmd_len)
 	/* Send set_channel irrespective of the values of LO parameters as they are not cached
 	 * in driver to check whether they have changed.
 	 */
-	band = (channel <= 14) ? NL80211_BAND_2GHZ : NL80211_BAND_5GHZ;
+	band = (channel <= 14) ? IEEE80211_BAND_2GHZ : IEEE80211_BAND_5GHZ;
 	freq = ieee80211_channel_to_frequency(channel, band);
 	chan = ieee80211_get_channel(sdev->wiphy, freq);
 	if (!chan) {
@@ -2490,7 +2455,7 @@ static ssize_t slsi_send_action_frame(struct net_device *dev, char *command, int
 	u8                   bssid[6] = { 0 };
 	int                  channel = 0;
 	int                  freq = 0;
-	enum nl80211_band  band = NL80211_BAND_2GHZ;
+	enum ieee80211_band  band = IEEE80211_BAND_2GHZ;
 	int                  r = 0;
 	u16                  host_tag = slsi_tx_mgmt_host_tag(sdev);
 	u32                  dwell_time;
@@ -2550,7 +2515,7 @@ static ssize_t slsi_send_action_frame(struct net_device *dev, char *command, int
 	}
 
 	if (channel > 14)
-		band = NL80211_BAND_5GHZ;
+		band = IEEE80211_BAND_5GHZ;
 	freq = (u16)ieee80211_channel_to_frequency(channel, band);
 	if (!freq) {
 		kfree(ioctl_args);

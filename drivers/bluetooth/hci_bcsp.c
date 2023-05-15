@@ -381,7 +381,7 @@ static void bcsp_pkt_cull(struct bcsp_struct *bcsp)
 		i++;
 
 		__skb_unlink(skb, &bcsp->unack);
-		dev_kfree_skb_irq(skb);
+		kfree_skb(skb);
 	}
 
 	if (skb_queue_empty(&bcsp->unack))
@@ -566,7 +566,6 @@ static int bcsp_recv(struct hci_uart *hu, const void *data, int count)
 			if (*ptr == 0xc0) {
 				BT_ERR("Short BCSP packet");
 				kfree_skb(bcsp->rx_skb);
-				bcsp->rx_skb = NULL;
 				bcsp->rx_state = BCSP_W4_PKT_START;
 				bcsp->rx_count = 0;
 			} else
@@ -582,7 +581,6 @@ static int bcsp_recv(struct hci_uart *hu, const void *data, int count)
 					bcsp->rx_skb->data[2])) != bcsp->rx_skb->data[3]) {
 				BT_ERR("Error in BCSP hdr checksum");
 				kfree_skb(bcsp->rx_skb);
-				bcsp->rx_skb = NULL;
 				bcsp->rx_state = BCSP_W4_PKT_DELIMITER;
 				bcsp->rx_count = 0;
 				continue;
@@ -617,7 +615,6 @@ static int bcsp_recv(struct hci_uart *hu, const void *data, int count)
 					bscp_get_crc(bcsp));
 
 				kfree_skb(bcsp->rx_skb);
-				bcsp->rx_skb = NULL;
 				bcsp->rx_state = BCSP_W4_PKT_DELIMITER;
 				bcsp->rx_count = 0;
 				continue;
@@ -731,11 +728,6 @@ static int bcsp_close(struct hci_uart *hu)
 	skb_queue_purge(&bcsp->unack);
 	skb_queue_purge(&bcsp->rel);
 	skb_queue_purge(&bcsp->unrel);
-
-	if (bcsp->rx_skb) {
-		kfree_skb(bcsp->rx_skb);
-		bcsp->rx_skb = NULL;
-	}
 
 	kfree(bcsp);
 	return 0;

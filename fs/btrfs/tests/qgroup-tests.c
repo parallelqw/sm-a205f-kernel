@@ -254,10 +254,8 @@ static int test_no_shared_qgroup(struct btrfs_root *root)
 	}
 
 	ret = insert_normal_tree_ref(root, 4096, 4096, 0, 5);
-	if (ret) {
-		ulist_free(old_roots);
+	if (ret)
 		return ret;
-	}
 
 	ret = btrfs_find_all_roots(&trans, fs_info, 4096, 0, &new_roots);
 	if (ret) {
@@ -289,10 +287,8 @@ static int test_no_shared_qgroup(struct btrfs_root *root)
 	}
 
 	ret = remove_extent_item(root, 4096, 4096);
-	if (ret) {
-		ulist_free(old_roots);
+	if (ret)
 		return -EINVAL;
-	}
 
 	ret = btrfs_find_all_roots(&trans, fs_info, 4096, 0, &new_roots);
 	if (ret) {
@@ -349,10 +345,8 @@ static int test_multiple_refs(struct btrfs_root *root)
 	}
 
 	ret = insert_normal_tree_ref(root, 4096, 4096, 0, 5);
-	if (ret) {
-		ulist_free(old_roots);
+	if (ret)
 		return ret;
-	}
 
 	ret = btrfs_find_all_roots(&trans, fs_info, 4096, 0, &new_roots);
 	if (ret) {
@@ -382,10 +376,8 @@ static int test_multiple_refs(struct btrfs_root *root)
 	}
 
 	ret = add_tree_ref(root, 4096, 4096, 0, 256);
-	if (ret) {
-		ulist_free(old_roots);
+	if (ret)
 		return ret;
-	}
 
 	ret = btrfs_find_all_roots(&trans, fs_info, 4096, 0, &new_roots);
 	if (ret) {
@@ -420,10 +412,8 @@ static int test_multiple_refs(struct btrfs_root *root)
 	}
 
 	ret = remove_extent_ref(root, 4096, 4096, 0, 256);
-	if (ret) {
-		ulist_free(old_roots);
+	if (ret)
 		return ret;
-	}
 
 	ret = btrfs_find_all_roots(&trans, fs_info, 4096, 0, &new_roots);
 	if (ret) {
@@ -487,9 +477,9 @@ int btrfs_test_qgroups(void)
 	 * *cough*backref walking code*cough*
 	 */
 	root->node = alloc_test_extent_buffer(root->fs_info, 4096);
-	if (IS_ERR(root->node)) {
+	if (!root->node) {
 		test_msg("Couldn't allocate dummy buffer\n");
-		ret = PTR_ERR(root->node);
+		ret = -ENOMEM;
 		goto out;
 	}
 	btrfs_set_header_level(root->node, 0);

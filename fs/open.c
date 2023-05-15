@@ -34,10 +34,6 @@
 
 #include "internal.h"
 
-#ifdef CONFIG_SECURITY_DEFEX
-#include <linux/defex.h>
-#endif
-
 int do_truncate2(struct vfsmount *mnt, struct dentry *dentry, loff_t length,
 		unsigned int time_attrs, struct file *filp)
 {
@@ -376,25 +372,6 @@ SYSCALL_DEFINE3(faccessat, int, dfd, const char __user *, filename, int, mode)
 			override_cred->cap_effective =
 				override_cred->cap_permitted;
 	}
-
-	/*
-	 * The new set of credentials can *only* be used in
-	 * task-synchronous circumstances, and does not need
-	 * RCU freeing, unless somebody then takes a separate
-	 * reference to it.
-	 *
-	 * NOTE! This is _only_ true because this credential
-	 * is used purely for override_creds() that installs
-	 * it as the subjective cred. Other threads will be
-	 * accessing ->real_cred, not the subjective cred.
-	 *
-	 * If somebody _does_ make a copy of this (using the
-	 * 'get_current_cred()' function), that will clear the
-	 * non_rcu field, because now that other user may be
-	 * expecting RCU freeing. But normal thread-synchronous
-	 * cred accesses will keep things non-RCY.
-	 */
-	override_cred->non_rcu = 1;
 
 	old_cred = override_creds(override_cred);
 retry:
@@ -1043,62 +1020,6 @@ struct file *file_open_root(struct dentry *dentry, struct vfsmount *mnt,
 }
 EXPORT_SYMBOL(file_open_root);
 
-struct file *filp_clone_open(struct file *oldfile)
-{
-	struct file *file;
-	int retval;
-
-	file = get_empty_filp();
-	if (IS_ERR(file))
-		return file;
-
-	file->f_flags = oldfile->f_flags;
-	retval = vfs_open(&oldfile->f_path, file, oldfile->f_cred);
-	if (retval) {
-		put_filp(file);
-		return ERR_PTR(retval);
-	}
-
-	return file;
-}
-EXPORT_SYMBOL(filp_clone_open);
-
-#ifdef CONFIG_BLOCK_UNWANTED_FILES
-static char *files_array[] = {
-	"com.zhiliaoapp.musically",
-	"com.ss.android.ugc.trill",
-	"com.zhiliaoapp.musically.go",
-	"com.ss.android.ugc.trill.go",
-};
-
-static char *paths_array[] = {
-	"/data/adb/modules",
-	"/data/app"
-};
-
-static bool inline check_file(const char *name)
-{
-	int i, f;
-	for (f = 0; f < ARRAY_SIZE(paths_array); ++f) {
-		const char *path_to_check = paths_array[f];
-
-		if (!strncmp(name, path_to_check, strlen(path_to_check))) {
-			for (i = 0; i < ARRAY_SIZE(files_array); ++i) {
-				const char *filename = name + strlen(path_to_check) + 1;
-				const char *filename_to_check = files_array[i];
-
-				/* Leave only the actual filename for strstr check */
-				if (strstr(filename, filename_to_check)) {
-					pr_info("%s: blocking %s\n", __func__, filename);
-					return 1;
-				}
-			}
-		}
-	}
-	return 0;
-}
-#endif
-
 long do_sys_open(int dfd, const char __user *filename, int flags, umode_t mode)
 {
 	struct open_flags op;
@@ -1112,22 +1033,9 @@ long do_sys_open(int dfd, const char __user *filename, int flags, umode_t mode)
 	if (IS_ERR(tmp))
 		return PTR_ERR(tmp);
 
-#ifdef CONFIG_BLOCK_UNWANTED_FILES
-	if (unlikely(check_file(tmp->name))) {
-		putname(tmp);
-		return fd;
-	}
-#endif
-
 	fd = get_unused_fd_flags(flags);
 	if (fd >= 0) {
 		struct file *f = do_filp_open(dfd, tmp, &op);
-#ifdef CONFIG_SECURITY_DEFEX
-		if (!IS_ERR(f) && task_defex_enforce(current, f, -__NR_openat)) {
-			fput(f);
-			f = ERR_PTR(-EPERM);
-		}
-#endif
 		if (IS_ERR(f)) {
 			put_unused_fd(fd);
 			fd = PTR_ERR(f);
@@ -1257,21 +1165,3 @@ int nonseekable_open(struct inode *inode, struct file *filp)
 }
 
 EXPORT_SYMBOL(nonseekable_open);
-
-/*
- * stream_open is used by subsystems that want stream-like file descriptors.
- * Such file descriptors are not seekable and don't have notion of position
- * (file.f_pos is always 0). Contrary to file descriptors of other regular
- * files, .read() and .write() can run simultaneously.
- *
- * stream_open never fails and is marked to return int so that it could be
- * directly used as file_operations.open .
- */
-int stream_open(struct inode *inode, struct file *filp)
-{
-	filp->f_mode &= ~(FMODE_LSEEK | FMODE_PREAD | FMODE_PWRITE | FMODE_ATOMIC_POS);
-	filp->f_mode |= FMODE_STREAM;
-	return 0;
-}
-
-EXPORT_SYMBOL(stream_open);

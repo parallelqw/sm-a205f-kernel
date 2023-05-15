@@ -455,9 +455,8 @@ static int brcmnand_revision_init(struct brcmnand_controller *ctrl)
 	} else {
 		ctrl->cs_offsets = brcmnand_cs_offsets;
 
-		/* v3.3-5.0 have a different CS0 offset layout */
-		if (ctrl->nand_version >= 0x0303 &&
-		    ctrl->nand_version <= 0x0500)
+		/* v5.0 and earlier has a different CS0 offset layout */
+		if (ctrl->nand_version <= 0x0500)
 			ctrl->cs0_offsets = brcmnand_cs_offsets_cs0;
 	}
 
@@ -1460,7 +1459,7 @@ static int brcmnand_read_by_pio(struct mtd_info *mtd, struct nand_chip *chip,
 					mtd->oobsize / trans,
 					host->hwcfg.sector_size_1k);
 
-		if (ret != -EBADMSG) {
+		if (!ret) {
 			*err_addr = brcmnand_read_reg(ctrl,
 					BRCMNAND_UNCORR_ADDR) |
 				((u64)(brcmnand_read_reg(ctrl,

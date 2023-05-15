@@ -1060,10 +1060,8 @@ static void cmdq_finish_data(struct mmc_host *mmc, unsigned int tag)
 	struct mmc_request *mrq;
 	struct cmdq_host *cq_host = (struct cmdq_host *)mmc_cmdq_private(mmc);
 	struct mmc_cmdq_context_info *ctx_info = &mmc->cmdq_ctx;
-#ifdef CONFIG_MMC_DW_DEBUG
-        u32 dbr = cmdq_readl(cq_host, CQTDBR);
-#endif
-        unsigned long flags;
+	u32 dbr = cmdq_readl(cq_host, CQTDBR);
+	unsigned long flags;
 
 	if (test_bit(CMDQ_STATE_ERR, &ctx_info->curr_state)) {
 		pr_err("[CQ] %s: err state is request ignored!\n", mmc_hostname(mmc));

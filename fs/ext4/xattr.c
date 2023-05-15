@@ -592,7 +592,7 @@ ext4_xattr_release_block(handle_t *handle, struct inode *inode,
 		 * This must happen under buffer lock for
 		 * ext4_xattr_block_set() to reliably detect freed block
 		 */
-		mb_cache_entry_delete(ext4_mb_cache, hash, bh->b_blocknr);
+		mb_cache_entry_delete_block(ext4_mb_cache, hash, bh->b_blocknr);
 		get_bh(bh);
 		unlock_buffer(bh);
 		ext4_free_blocks(handle, inode, bh, 0, 1,
@@ -864,8 +864,8 @@ ext4_xattr_block_set(handle_t *handle, struct inode *inode,
 			 * ext4_xattr_block_set() to reliably detect modified
 			 * block
 			 */
-			mb_cache_entry_delete(ext4_mb_cache, hash,
-					      bs->bh->b_blocknr);
+			mb_cache_entry_delete_block(ext4_mb_cache, hash,
+						    bs->bh->b_blocknr);
 			ea_bdebug(bs->bh, "modifying in-place");
 			error = ext4_xattr_set_entry(i, s, inode);
 			if (!error) {
@@ -999,10 +999,18 @@ inserted:
 
 			goal = ext4_group_first_block_no(sb,
 						EXT4_I(inode)->i_block_group);
+
+			/* non-extent files can't have physical blocks past 2^32 */
+			if (!(ext4_test_inode_flag(inode, EXT4_INODE_EXTENTS)))
+				goal = goal & EXT4_MAX_BLOCK_FILE_PHYS;
+
 			block = ext4_new_meta_blocks(handle, inode, goal, 0,
 						     NULL, &error);
 			if (error)
 				goto cleanup;
+
+			if (!(ext4_test_inode_flag(inode, EXT4_INODE_EXTENTS)))
+				BUG_ON(block > EXT4_MAX_BLOCK_FILE_PHYS);
 
 			ea_idebug(inode, "creating block %llu",
 				  (unsigned long long)block);
@@ -1069,9 +1077,8 @@ int ext4_xattr_ibody_find(struct inode *inode, struct ext4_xattr_info *i,
 	struct ext4_inode *raw_inode;
 	int error;
 
-	if (!EXT4_INODE_HAS_XATTR_SPACE(inode))
+	if (EXT4_I(inode)->i_extra_isize == 0)
 		return 0;
-
 	raw_inode = ext4_raw_inode(&is->iloc);
 	header = IHDR(inode, raw_inode);
 	is->s.base = is->s.first = IFIRST(header);
@@ -1096,7 +1103,7 @@ int ext4_xattr_ibody_find(struct inode *inode, struct ext4_xattr_info *i,
 	return 0;
 }
 
-int ext4_xattr_ibody_set(handle_t *handle, struct inode *inode,
+int ext4_xattr_ibody_inline_set(handle_t *handle, struct inode *inode,
 				struct ext4_xattr_info *i,
 				struct ext4_xattr_ibody_find *is)
 {
@@ -1105,8 +1112,43 @@ int ext4_xattr_ibody_set(handle_t *handle, struct inode *inode,
 	int error;
 
 	/* @fs.sec -- 27aa4ade7b90e77a75b0f821924eaac228cfdd43 -- */
-	if (!EXT4_INODE_HAS_XATTR_SPACE(inode))
+	if (EXT4_I(inode)->i_extra_isize == 0 ||
+			(void *) EXT4_XATTR_NEXT(s->first) >= s->end)
 		return -ENOSPC;
+	error = ext4_xattr_set_entry(i, s, inode);
+	if (error)
+		return error;
+	header = IHDR(inode, ext4_raw_inode(&is->iloc));
+	if (!IS_LAST_ENTRY(s->first)) {
+		header->h_magic = cpu_to_le32(EXT4_XATTR_MAGIC);
+		ext4_set_inode_state(inode, EXT4_STATE_XATTR);
+	} else {
+		header->h_magic = cpu_to_le32(0);
+		ext4_clear_inode_state(inode, EXT4_STATE_XATTR);
+	}
+	return 0;
+}
+
+static int ext4_xattr_ibody_set(handle_t *handle, struct inode *inode,
+				struct ext4_xattr_info *i,
+				struct ext4_xattr_ibody_find *is)
+{
+	struct ext4_xattr_ibody_header *header;
+	struct ext4_xattr_search *s = &is->s;
+	int error;
+
+	/* @fs.sec -- ec294112f1af9d4be72e6292e7e994e522fccbeb -- */
+	if (EXT4_I(inode)->i_extra_isize == 0 ||
+			(void *) EXT4_XATTR_NEXT(s->first) >= s->end)
+		return -ENOSPC;
+
+	if (!strcmp(i->name, "selinux")) {
+		if (!i->value || !strcmp(i->value, "") ||
+				strstr(i->value, "unlabeled")) {
+			SE_LOG("%s : ino(%lu) label set, value : %s.",
+					__func__, inode->i_ino, i->value?i->value:"NuLL");
+		}
+	}
 
 	error = ext4_xattr_set_entry(i, s, inode);
 	if (error)
@@ -1536,9 +1578,6 @@ out:
 	ext4_write_unlock_xattr(inode, &no_expand);
 	return 0;
 
-	if (ext4_has_inline_data(inode))
-		error = ext4_find_inline_data_nolock(inode);
-
 cleanup:
 	kfree(b_entry_name);
 	kfree(buffer);
@@ -1681,10 +1720,10 @@ ext4_xattr_cache_find(struct inode *inode, struct ext4_xattr_header *header,
 	while (ce) {
 		struct buffer_head *bh;
 
-		bh = sb_bread(inode->i_sb, ce->e_value);
+		bh = sb_bread(inode->i_sb, ce->e_block);
 		if (!bh) {
 			EXT4_ERROR_INODE(inode, "block %lu read error",
-					 (unsigned long)ce->e_value);
+					 (unsigned long) ce->e_block);
 		} else if (ext4_xattr_cmp(header, BHDR(bh)) == 0) {
 			*pce = ce;
 			return bh;

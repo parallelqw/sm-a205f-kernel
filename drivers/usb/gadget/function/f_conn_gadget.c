@@ -59,7 +59,6 @@
 #include <linux/file.h>
 #include <linux/configfs.h>
 #include <linux/usb/composite.h>
-#include <linux/kref.h>
 
 /* platform specific definitions */
 /* ex) #define __ANDROID__ */
@@ -80,24 +79,7 @@
 #define MAX_INST_NAME_LEN	40
 
 /* ioctl */
-enum {
-	CONN_GADGET_IOCTL_BIND_STATUS_UNDEFINED = 0,
-	CONN_GADGET_IOCTL_BIND_STATUS_BIND = 1,
-	CONN_GADGET_IOCTL_BIND_STATUS_UNBIND = 2
-};
-
-enum {
-	CONN_GADGET_IOCTL_NR_0 = 0,
-	CONN_GADGET_IOCTL_NR_1,
-	CONN_GADGET_IOCTL_NR_2,
-	CONN_GADGET_IOCTL_NR_MAX
-};
-
-#define CONN_GADGET_IOCTL_MAGIC_SIG             's'
-#define CONN_GADGET_IOCTL_SUPPORT_LIST          _IOR(CONN_GADGET_IOCTL_MAGIC_SIG, CONN_GADGET_IOCTL_NR_0, int*)
-#define CONN_GADGET_IOCTL_BIND_WAIT_NOTIFY      _IOR(CONN_GADGET_IOCTL_MAGIC_SIG, CONN_GADGET_IOCTL_NR_1, int)
-#define CONN_GADGET_IOCTL_BIND_GET_STATUS       _IOR(CONN_GADGET_IOCTL_MAGIC_SIG, CONN_GADGET_IOCTL_NR_2, int)
-#define CONN_GADGET_IOCTL_MAX_NR                CONN_GADGET_IOCTL_NR_MAX
+#include "f_conn_gadget.ioctl.h"
 
 static const char conn_gadget_shortname[] = CONN_GADGET_SHORTNAME;
 
@@ -142,8 +124,6 @@ struct conn_gadget_dev {
  	/* flag variable that save flush call status 
 	 * to check wakeup reason */
 	atomic_t flush;
-	
-	struct kref kref;
 };
 
 static struct usb_interface_descriptor conn_gadget_interface_desc = {
@@ -251,7 +231,6 @@ struct conn_gadget_instance {
 	const char *name;
 };
 
-static void conn_gadget_cleanup(struct kref *kref);
 
 static inline struct conn_gadget_dev *func_to_conn_gadget(struct usb_function *f)
 {
@@ -723,11 +702,6 @@ static int conn_gadget_open(struct inode *ip, struct file *fp)
 		return -EBUSY;
 	}
 
-	if (!kref_get_unless_zero(&_conn_gadget_dev->kref)) {
-		CONN_GADGET_ERR("already device removed\n");
-		return -ENODEV;
-	}
-
 	fp->private_data = _conn_gadget_dev;
 
 	/* clear the error latch */
@@ -774,8 +748,6 @@ static int conn_gadget_release(struct inode *ip, struct file *fp)
 	atomic_set(&_conn_gadget_dev->flush, 0);
 
 	conn_gadget_unlock(&_conn_gadget_dev->open_excl);
-	
-	kref_put(&_conn_gadget_dev->kref, conn_gadget_cleanup);
 	return 0;
 }
 
@@ -1263,8 +1235,6 @@ static int conn_gadget_setup(struct conn_gadget_instance *fi_conn_gadget)
 	atomic_set(&dev->flush, 0);
 	atomic_set(&dev->ep_out_excl, 0);
 
-	kref_init(&dev->kref);
-
 	INIT_LIST_HEAD(&dev->tx_idle);
 	INIT_LIST_HEAD(&dev->rx_idle);
 	INIT_LIST_HEAD(&dev->rx_busy);
@@ -1305,33 +1275,31 @@ static int conn_gadget_setup(struct conn_gadget_instance *fi_conn_gadget)
 	return 0;
 err_:
 
-    if (dev->rd_queue_buf) {
+    if (dev->rd_queue_buf)
 	vfree(dev->rd_queue_buf);
 
 	_conn_gadget_dev = NULL;
 	kfree(dev);
 	CONN_GADGET_ERR("conn_gadget gadget driver failed to initialize\n");
-    }
-    return ret;
+	return ret;
 }
 
-static void conn_gadget_cleanup(struct kref *kref)
+static void conn_gadget_cleanup(void)
 {
 	printk(KERN_INFO "conn_gadget_cleanup\n");
 
-    if (!_conn_gadget_dev) {
+	if (!_conn_gadget_dev) {
 		CONN_GADGET_ERR("_conn_gadget_dev is not allocated\n");
 		return ;
-    }
+	}
 
 	misc_deregister(&conn_gadget_device);
 
-    if (_conn_gadget_dev->rd_queue_buf) {
+    if (_conn_gadget_dev->rd_queue_buf)
         vfree(_conn_gadget_dev->rd_queue_buf);
 
 	kfree(_conn_gadget_dev);
 	_conn_gadget_dev = NULL;
-    }
 }
 
 static int conn_gadget_setup_configfs(struct conn_gadget_instance *fi_conn_gadget)
@@ -1392,8 +1360,8 @@ static void conn_gadget_free_inst(struct usb_function_instance *fi)
 
 	fi_conn_gadget = to_fi_conn_gadget(fi);
 	kfree(fi_conn_gadget->name);
+	conn_gadget_cleanup();
 	kfree(fi_conn_gadget);
-	kref_put(&_conn_gadget_dev->kref, conn_gadget_cleanup);
 }
 
 struct usb_function_instance *alloc_inst_conn_gadget(void)

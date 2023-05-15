@@ -1176,7 +1176,7 @@ static int rpc_sockname(struct net *net, struct sockaddr *sap, size_t salen,
 		break;
 	default:
 		err = -EAFNOSUPPORT;
-		goto out_release;
+		goto out;
 	}
 	if (err < 0) {
 		dprintk("RPC:       can't bind UDP socket (%d)\n", err);
@@ -1826,14 +1826,6 @@ call_connect_status(struct rpc_task *task)
 	task->tk_status = 0;
 	switch (status) {
 	case -ECONNREFUSED:
-		/* A positive refusal suggests a rebind is needed. */
-		if (RPC_IS_SOFTCONN(task))
-			break;
-		if (clnt->cl_autobind) {
-			rpc_force_rebind(clnt);
-			task->tk_action = call_bind;
-			return;
-		}
 	case -ECONNRESET:
 	case -ECONNABORTED:
 	case -ENETUNREACH:

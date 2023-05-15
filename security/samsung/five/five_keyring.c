@@ -151,16 +151,15 @@ static int __init five_load_x509_from_mem(const char *data, size_t size)
 extern char five_local_ca_start_eng[];
 extern char five_local_ca_end_eng[];
 
-static int __init five_import_eng_key(void)
+static void __init five_import_eng_key(void)
 {
 	size_t size = five_local_ca_end_eng - five_local_ca_start_eng;
 
-	return five_load_x509_from_mem(five_local_ca_start_eng, size);
+	five_load_x509_from_mem(five_local_ca_start_eng, size);
 }
 #else
-static int __init five_import_eng_key(void)
+static void __init five_import_eng_key(void)
 {
-	return 0;
 }
 #endif
 
@@ -168,30 +167,22 @@ static int __init five_import_eng_key(void)
 extern char five_local_ca_start_user[];
 extern char five_local_ca_end_user[];
 
-static int __init five_import_user_key(void)
+static void __init five_import_user_key(void)
 {
 	size_t size = five_local_ca_end_user - five_local_ca_start_user;
 
-	return five_load_x509_from_mem(five_local_ca_start_user, size);
+	five_load_x509_from_mem(five_local_ca_start_user, size);
 }
 #else
-static int __init five_import_user_key(void)
+static void __init five_import_user_key(void)
 {
-	return 0;
 }
 #endif
 
-int __init five_load_built_x509(void)
+void __init five_load_built_x509(void)
 {
-	int rc;
-
-	rc = five_import_eng_key();
-	if (rc)
-		return rc;
-
-	rc = five_import_user_key();
-
-	return rc;
+	five_import_eng_key();
+	five_import_user_key();
 }
 
 int __init five_keyring_init(void)

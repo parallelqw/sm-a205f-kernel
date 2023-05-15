@@ -44,14 +44,11 @@
 #include <linux/notifier.h>
 #include <linux/ratelimit.h>
 
-#if defined(CONFIG_LMK_SKIP_KILL)
-#include <linux/delay.h>
-#endif
 
 #define CREATE_TRACE_POINTS
 #include "trace/lowmemorykiller.h"
 
-static uint32_t lowmem_debug_level = 0;
+static uint32_t lowmem_debug_level = 1;
 static short lowmem_adj[6] = {
 	0,
 	1,
@@ -240,16 +237,6 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 			task_unlock(p);
 			continue;
 		}
-
-#if defined(CONFIG_LMK_SKIP_KILL)
-		if (oom_score_adj == 200 &&
-		    (!strncmp(p->group_leader->comm, ".android.chrome", 15) ||
-			 !strncmp(p->group_leader->comm, "id.app.sbrowser", 15))) {
-			task_unlock(p);
-			continue;
-		}
-#endif
-
 		tasksize = get_mm_rss(p->mm);
 #if defined(CONFIG_ZSWAP)
 		zswap_stored_pages_temp = atomic_read(&zswap_stored_pages);
@@ -295,8 +282,13 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 
 		task_lock(selected);
 		send_sig(SIGKILL, selected, 0);
+		/*
+		 * FIXME: lowmemorykiller shouldn't abuse global OOM killer
+		 * infrastructure. There is no real reason why the selected
+		 * task should have access to the memory reserves.
+		 */
 		if (selected->mm)
-			task_set_lmk_waiting(selected);
+			mark_oom_victim(selected);
 		task_unlock(selected);
 		trace_lowmemory_kill(selected, cache_size, cache_limit, free);
 		lowmem_print(1, "Killing '%s' (%d) (tgid %d), adj %hd,\n"
@@ -337,12 +329,6 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 
 	if (!rem)
 		rem = SHRINK_STOP;
-#if defined(CONFIG_LMK_SKIP_KILL)
-	else {
-		/* give the system time to free up the memory */
-		msleep_interruptible(20);
-	}
-#endif
 
 	return rem;
 }

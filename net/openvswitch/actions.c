@@ -137,22 +137,11 @@ static bool is_flow_key_valid(const struct sw_flow_key *key)
 	return !!key->eth.type;
 }
 
-static void update_ethertype(struct sk_buff *skb, struct ethhdr *hdr,
-			     __be16 ethertype)
-{
-	if (skb->ip_summed == CHECKSUM_COMPLETE) {
-		__be16 diff[] = { ~(hdr->h_proto), ethertype };
-
-		skb->csum = csum_partial((char *)diff, sizeof(diff), skb->csum);
-	}
-
-	hdr->h_proto = ethertype;
-}
-
 static int push_mpls(struct sk_buff *skb, struct sw_flow_key *key,
 		     const struct ovs_action_push_mpls *mpls)
 {
 	__be32 *new_mpls_lse;
+	struct ethhdr *hdr;
 
 	/* Networking stack do not allow simultaneous Tunnel and MPLS GSO. */
 	if (skb->encapsulation)
@@ -171,7 +160,9 @@ static int push_mpls(struct sk_buff *skb, struct sw_flow_key *key,
 
 	skb_postpush_rcsum(skb, new_mpls_lse, MPLS_HLEN);
 
-	update_ethertype(skb, eth_hdr(skb), mpls->mpls_ethertype);
+	hdr = eth_hdr(skb);
+	hdr->h_proto = mpls->mpls_ethertype;
+
 	if (!skb->inner_protocol)
 		skb_set_inner_protocol(skb, skb->protocol);
 	skb->protocol = mpls->mpls_ethertype;
@@ -202,7 +193,7 @@ static int pop_mpls(struct sk_buff *skb, struct sw_flow_key *key,
 	 * field correctly in the presence of VLAN tags.
 	 */
 	hdr = (struct ethhdr *)(skb_mpls_header(skb) - ETH_HLEN);
-	update_ethertype(skb, hdr, ethertype);
+	hdr->h_proto = ethertype;
 	if (eth_p_mpls(skb->protocol))
 		skb->protocol = ethertype;
 
@@ -226,7 +217,8 @@ static int set_mpls(struct sk_buff *skb, struct sw_flow_key *flow_key,
 	if (skb->ip_summed == CHECKSUM_COMPLETE) {
 		__be32 diff[] = { ~(*stack), lse };
 
-		skb->csum = csum_partial((char *)diff, sizeof(diff), skb->csum);
+		skb->csum = ~csum_partial((char *)diff, sizeof(diff),
+					  ~skb->csum);
 	}
 
 	*stack = lse;
@@ -375,43 +367,12 @@ static void set_ipv6_addr(struct sk_buff *skb, u8 l4_proto,
 	memcpy(addr, new_addr, sizeof(__be32[4]));
 }
 
-static void set_ipv6_dsfield(struct sk_buff *skb, struct ipv6hdr *nh, u8 ipv6_tclass, u8 mask)
+static void set_ipv6_fl(struct ipv6hdr *nh, u32 fl, u32 mask)
 {
-	u8 old_ipv6_tclass = ipv6_get_dsfield(nh);
-
-	ipv6_tclass = OVS_MASKED(old_ipv6_tclass, ipv6_tclass, mask);
-
-	if (skb->ip_summed == CHECKSUM_COMPLETE)
-		csum_replace(&skb->csum, (__force __wsum)(old_ipv6_tclass << 12),
-			     (__force __wsum)(ipv6_tclass << 12));
-
-	ipv6_change_dsfield(nh, ~mask, ipv6_tclass);
-}
-
-static void set_ipv6_fl(struct sk_buff *skb, struct ipv6hdr *nh, u32 fl, u32 mask)
-{
-	u32 ofl;
-
-	ofl = nh->flow_lbl[0] << 16 |  nh->flow_lbl[1] << 8 |  nh->flow_lbl[2];
-	fl = OVS_MASKED(ofl, fl, mask);
-
 	/* Bits 21-24 are always unmasked, so this retains their values. */
-	nh->flow_lbl[0] = (u8)(fl >> 16);
-	nh->flow_lbl[1] = (u8)(fl >> 8);
-	nh->flow_lbl[2] = (u8)fl;
-
-	if (skb->ip_summed == CHECKSUM_COMPLETE)
-		csum_replace(&skb->csum, (__force __wsum)htonl(ofl), (__force __wsum)htonl(fl));
-}
-
-static void set_ipv6_ttl(struct sk_buff *skb, struct ipv6hdr *nh, u8 new_ttl, u8 mask)
-{
-	new_ttl = OVS_MASKED(nh->hop_limit, new_ttl, mask);
-
-	if (skb->ip_summed == CHECKSUM_COMPLETE)
-		csum_replace(&skb->csum, (__force __wsum)(nh->hop_limit << 8),
-			     (__force __wsum)(new_ttl << 8));
-	nh->hop_limit = new_ttl;
+	OVS_SET_MASKED(nh->flow_lbl[0], (u8)(fl >> 16), (u8)(mask >> 16));
+	OVS_SET_MASKED(nh->flow_lbl[1], (u8)(fl >> 8), (u8)(mask >> 8));
+	OVS_SET_MASKED(nh->flow_lbl[2], (u8)fl, (u8)mask);
 }
 
 static void set_ip_ttl(struct sk_buff *skb, struct iphdr *nh, u8 new_ttl,
@@ -529,17 +490,18 @@ static int set_ipv6(struct sk_buff *skb, struct sw_flow_key *flow_key,
 		}
 	}
 	if (mask->ipv6_tclass) {
-		set_ipv6_dsfield(skb, nh, key->ipv6_tclass, mask->ipv6_tclass);
+		ipv6_change_dsfield(nh, ~mask->ipv6_tclass, key->ipv6_tclass);
 		flow_key->ip.tos = ipv6_get_dsfield(nh);
 	}
 	if (mask->ipv6_label) {
-		set_ipv6_fl(skb, nh, ntohl(key->ipv6_label),
+		set_ipv6_fl(nh, ntohl(key->ipv6_label),
 			    ntohl(mask->ipv6_label));
 		flow_key->ipv6.label =
 		    *(__be32 *)nh & htonl(IPV6_FLOWINFO_FLOWLABEL);
 	}
 	if (mask->ipv6_hlimit) {
-		set_ipv6_ttl(skb, nh, key->ipv6_hlimit, mask->ipv6_hlimit);
+		OVS_SET_MASKED(nh->hop_limit, key->ipv6_hlimit,
+			       mask->ipv6_hlimit);
 		flow_key->ip.ttl = nh->hop_limit;
 	}
 	return 0;
@@ -724,16 +686,16 @@ static void ovs_fragment(struct net *net, struct vport *vport,
 	}
 
 	if (ethertype == htons(ETH_P_IP)) {
-		struct rtable ovs_rt = { 0 };
+		struct dst_entry ovs_dst;
 		unsigned long orig_dst;
 
 		prepare_frag(vport, skb);
-		dst_init(&ovs_rt.dst, &ovs_dst_ops, NULL, 1,
+		dst_init(&ovs_dst, &ovs_dst_ops, NULL, 1,
 			 DST_OBSOLETE_NONE, DST_NOCOUNT);
-		ovs_rt.dst.dev = vport->dev;
+		ovs_dst.dev = vport->dev;
 
 		orig_dst = skb->_skb_refdst;
-		skb_dst_set_noref(skb, &ovs_rt.dst);
+		skb_dst_set_noref(skb, &ovs_dst);
 		IPCB(skb)->frag_max_size = mru;
 
 		ip_do_fragment(net, skb->sk, skb, ovs_vport_output);

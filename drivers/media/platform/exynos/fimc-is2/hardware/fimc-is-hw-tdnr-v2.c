@@ -829,7 +829,8 @@ static int fimc_is_hw_mcsc_cfg_tdnr_tuning_param(struct fimc_is_hw_ip *hw_ip,
 
 	hw_mcsc = (struct fimc_is_hw_mcsc *)hw_ip->priv_info;
 
-	return ret;
+	if (!hw_mcsc->setfile)
+		return ret;
 
 	if (frame->type == SHOT_TYPE_INTERNAL) {
 		warn_hw("wrong TDNR setting at internal shot");

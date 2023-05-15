@@ -164,31 +164,26 @@ static int debugfs_show_options(struct seq_file *m, struct dentry *root)
 	return 0;
 }
 
-static void debugfs_i_callback(struct rcu_head *head)
+static void debugfs_evict_inode(struct inode *inode)
 {
-	struct inode *inode = container_of(head, struct inode, i_rcu);
+	truncate_inode_pages_final(&inode->i_data);
+	clear_inode(inode);
 	if (S_ISLNK(inode->i_mode))
 		kfree(inode->i_link);
-	free_inode_nonrcu(inode);
-}
-
-static void debugfs_destroy_inode(struct inode *inode)
-{
-	call_rcu(&inode->i_rcu, debugfs_i_callback);
 }
 
 static const struct super_operations debugfs_super_operations = {
 	.statfs		= simple_statfs,
 	.remount_fs	= debugfs_remount,
 	.show_options	= debugfs_show_options,
-	.destroy_inode	= debugfs_destroy_inode,
+	.evict_inode	= debugfs_evict_inode,
 };
 
 static struct vfsmount *debugfs_automount(struct path *path)
 {
-	debugfs_automount_t f;
-	f = (debugfs_automount_t)path->dentry->d_fsdata;
-	return f(path->dentry, d_inode(path->dentry)->i_private);
+	struct vfsmount *(*f)(void *);
+	f = (struct vfsmount *(*)(void *))path->dentry->d_fsdata;
+	return f(d_inode(path->dentry)->i_private);
 }
 
 static const struct dentry_operations debugfs_dops = {
@@ -449,7 +444,7 @@ EXPORT_SYMBOL_GPL(debugfs_create_dir);
  */
 struct dentry *debugfs_create_automount(const char *name,
 					struct dentry *parent,
-					debugfs_automount_t f,
+					struct vfsmount *(*f)(void *),
 					void *data)
 {
 	struct dentry *dentry = start_creating(name, parent);

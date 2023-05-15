@@ -127,10 +127,8 @@ static void unset_migratetype_isolate(struct page *page, unsigned migratetype)
 	zone->nr_isolate_pageblock--;
 out:
 	spin_unlock_irqrestore(&zone->lock, flags);
-	if (isolated_page) {
-		post_alloc_hook(page, order, __GFP_MOVABLE);
+	if (isolated_page)
 		__free_pages(isolated_page, order);
-	}
 }
 
 static inline struct page *

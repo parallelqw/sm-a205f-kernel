@@ -1136,14 +1136,11 @@ static int smsc95xx_bind(struct usbnet *dev, struct usb_interface *intf)
 
 	/* Init all registers */
 	ret = smsc95xx_reset(dev);
-	if (ret)
-		goto free_pdata;
 
 	/* detect device revision as different features may be available */
 	ret = smsc95xx_read_reg(dev, ID_REV, &val);
 	if (ret < 0)
-		goto free_pdata;
-
+		return ret;
 	val >>= 16;
 
 	if ((val == ID_REV_CHIP_ID_9500A_) || (val == ID_REV_CHIP_ID_9530_) ||
@@ -1160,10 +1157,6 @@ static int smsc95xx_bind(struct usbnet *dev, struct usb_interface *intf)
 	dev->net->hard_header_len += SMSC95XX_TX_OVERHEAD_CSUM;
 	dev->hard_mtu = dev->net->mtu + dev->net->hard_header_len;
 	return 0;
-
-free_pdata:
-	kfree(pdata);
-	return ret;
 }
 
 static void smsc95xx_unbind(struct usbnet *dev, struct usb_interface *intf)
@@ -1765,12 +1758,6 @@ static int smsc95xx_rx_fixup(struct usbnet *dev, struct sk_buff *skb)
 		/* get the packet length */
 		size = (u16)((header & RX_STS_FL_) >> 16);
 		align_count = (4 - ((size + NET_IP_ALIGN) % 4)) % 4;
-
-		if (unlikely(size > skb->len)) {
-			netif_dbg(dev, rx_err, dev->net,
-				  "size err header=0x%08x\n", header);
-			return 0;
-		}
 
 		if (unlikely(header & RX_STS_ES_)) {
 			netif_dbg(dev, rx_err, dev->net,

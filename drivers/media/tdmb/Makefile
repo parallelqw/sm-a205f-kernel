@@ -3,6 +3,7 @@
 #
 
 ccflags-y += -Idrivers/media/tdmb
+ccflags-y += -v
 
 obj-$(CONFIG_TDMB) += tdmb.o tdmb_data.o
 

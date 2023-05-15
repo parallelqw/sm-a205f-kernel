@@ -26,7 +26,7 @@
 #include "mali_kbase_mem_pool_debugfs.h"
 #include "mali_kbase_debugfs_helper.h"
 
-#if 0
+#ifdef CONFIG_DEBUG_FS
 
 void kbase_mem_pool_debugfs_trim(void *const array, size_t const index,
 	size_t const value)

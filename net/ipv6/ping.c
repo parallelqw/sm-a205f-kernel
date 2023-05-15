@@ -26,17 +26,11 @@
 #include <net/transp_v6.h>
 #include <net/ping.h>
 
-static void ping_v6_destroy(struct sock *sk)
-{
-	inet6_destroy_sock(sk);
-}
-
 struct proto pingv6_prot = {
 	.name =		"PINGv6",
 	.owner =	THIS_MODULE,
 	.init =		ping_init_sock,
 	.close =	ping_close,
-	.destroy =	ping_v6_destroy,
 	.connect =	ip6_datagram_connect_v6_only,
 	.disconnect =	udp_disconnect,
 	.setsockopt =	ipv6_setsockopt,
@@ -237,7 +231,7 @@ static int __net_init ping_v6_proc_init_net(struct net *net)
 	return ping_proc_register(net, &ping_v6_seq_afinfo);
 }
 
-static void __net_exit ping_v6_proc_exit_net(struct net *net)
+static void __net_init ping_v6_proc_exit_net(struct net *net)
 {
 	return ping_proc_unregister(net, &ping_v6_seq_afinfo);
 }

@@ -50,14 +50,14 @@
 							dev = "/dev/block/platform/13500000.dwmmc0/by-name/vendor";
 							type = "ext4";
 							mnt_flags = "ro";
-							fsmgr_flags = "wait";
+							fsmgr_flags = "wait,verify,avb";
 						};
 						product {
 							compatible = "android,product";
 							dev = "/dev/block/platform/13500000.dwmmc0/by-name/product";
 							type = "ext4";
 							mnt_flags = "ro";
-							fsmgr_flags = "wait";
+							fsmgr_flags = "wait,verify,avb";
 						};
 					};
 				};
@@ -116,10 +116,6 @@
 					use-lassenA;
 					use-btn-adc-mode;
 					use-det-gdet-adc-mode = <1>;
-					water-threshold-max = <2801>;
-					water-threshold-min = <286>;
-					aux-cable-detect-adc = <255>;
-					fake-jack-adc = <253>;
 					jackin-dbnc-time = <0xC0>;
 					jackout-dbnc-time = <0x02>;
 					jack-imp-tuning = <9>;
@@ -801,61 +797,18 @@
 				spur-trfon-freq = <1536>;
 			};
 			cpufreq {
-				cpufreq_domain0: domain@0 {
-					min-freq = <208000>;
-					max-freq = <1794000>;
-					policy-max = <1794000>;
-					
-					pm_qos-booting = <1690000>;
-					
-					user-default-qos = <902000>;
-					
+				domain@1 {
+					max-freq = <1768000>;
+
 					dm-constraints {
 						mif-perf {
-							table = < 1794000 1794000
-								  1690000 1794000
-								  1586000 1794000
-						         	  1482000 1539000
-								  1352000 1539000
-						        	  1248000 1539000
-						        	  1144000 1352000
-						        	  1014000 1352000
-						        	   902000 1014000
-						        	   839000  845000
-						        	   757000  845000
-						        	   676000  676000
-						        	   449000  546000
-						        	   343000  420000
-						        	   208000  420000 >;
-						 };
-					};
-				};
-				cpufreq_domain1: domain@1 {
-					min-freq = <208000>;
-					max-freq = <2288000>;
-					policy-max = <2288000>;
-					
-					pm_qos-booting = <2080000>;
-					
-					user-default-qos = <1144000>;
-					
-					dm-constraints {
-						mif-perf {
-							table = < 2288000 1794000
-								  2184000 1794000
-								  2080000 1794000
-          							  1976000 1794000
-          							  1872000 1794000
-          							  1768000 1539000
-          							  1664000 1539000
+							table = < 1768000 1794000
+								  1664000 1539000
 								  1560000 1539000
 								  1352000 1352000
 								  1144000 1014000
-								   936000 1014000
-								   728000  845000
-								   520000  546000
-								   312000  420000
-								   208000  420000 >;
+								   936000  546000
+								   728000  420000>;
 						};
 					};
 				};
@@ -874,75 +827,39 @@
 					device_type = "cpufreq-userctrl";
 					shared-cpus = "0-5";
 
-					user-default-qos = <902000>;
+					user-default-qos = <839000>;
+				};
 
-					min-limit {
-						ctrl-type = <PM_QOS_MIN_LIMIT>;
-						execution-mode = <AARCH64_MODE>;
-							/* big	    lit */
-						table = <
-							  208000  208000
-							  >;
-						};
-
-					max-limit {
-						ctrl-type = <PM_QOS_MAX_LIMIT>;
-						execution-mode = <AARCH64_MODE>;
-							/* big	    lit */
-						table = < 2288000 1794000
-						          2184000 1794000
-							  2080000 1690000
-          						  1976000 1586000
-          						  1872000 1482000
-          						  1768000 1352000
-          						  1664000 1248000
-          						  1560000 1114000
-          						  1352000 1014000
-          						  1144000  902000
-          						   936000  839000
-          						   728000  757000
-          						   728000  676000
-          						   728000  546000
-          						   520000  449000
-          						   312000  343000 >;
-						};
-					};
-					
 				domain@1 {
 					device_type = "cpufreq-userctrl";
 					shared-cpus = "6-7";
 
-					user-default-qos = <1144000>;
+					user-default-qos = <936000>;
 
 					min-limit {
 						ctrl-type = <PM_QOS_MIN_LIMIT>;
 						execution-mode = <AARCH64_MODE>;
 							/* big	    lit */
-						table = < 
-          				 		  208000  208000
-          				 		  >;
+						table = < 1768000  1586000
+							  1664000  839000
+							  1560000  839000
+							  1352000  839000
+							  1144000  839000
+							   936000  839000
+							   728000  839000 >;
 					};
 
 					max-limit {
 						ctrl-type = <PM_QOS_MAX_LIMIT>;
 						execution-mode = <AARCH64_MODE>;
 							/* big	    lit */
-						table = < 2288000 1794000
-						          2184000 1794000
-							  2080000 1690000
-          						  1976000 1586000
-          						  1872000 1482000
-          						  1768000 1352000
-          						  1664000 1248000
-          						  1560000 1114000
-          						  1352000 1014000
-          						  1144000  902000
-          						   936000  839000
-          						   728000  757000
-          						   728000  676000
-          						   728000  546000
-          						   520000  449000
-          						   312000  343000 >;
+						table = < 1768000 1586000
+							  1664000 1586000
+							  1560000 1586000
+							  1352000 1586000
+							  1144000 1352000
+							   936000 1248000
+							   728000 1248000 >;
 					};
 				};
 			};
@@ -1584,14 +1501,3 @@ usi_mode = "hsi2c0" or "hsi2c1" or "spi" or "uart"
 
 };
 
-&reserved_memory {
-	video_frame {
-		 compatible = "exynos8890-ion,vframe";
-		 ion,secure;
-		 ion,reusable;
-		 size = <0x2800000>;
-		 id = <5>;
-		 compat-id = <26 29>;
-		 alignment = <0x0 0x00400000>;
-	};
-};

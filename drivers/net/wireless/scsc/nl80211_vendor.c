@@ -392,11 +392,11 @@ static int slsi_gscan_get_valid_channel(struct wiphy *wiphy,
 	}
 
 	SLSI_MUTEX_LOCK(sdev->netdev_add_remove_mutex);
-	if (wiphy->bands[NL80211_BAND_2GHZ]) {
-		mem_len += wiphy->bands[NL80211_BAND_2GHZ]->n_channels * sizeof(u32);
+	if (wiphy->bands[IEEE80211_BAND_2GHZ]) {
+		mem_len += wiphy->bands[IEEE80211_BAND_2GHZ]->n_channels * sizeof(u32);
 	}
-	if (wiphy->bands[NL80211_BAND_5GHZ]) {
-		mem_len += wiphy->bands[NL80211_BAND_5GHZ]->n_channels * sizeof(u32);
+	if (wiphy->bands[IEEE80211_BAND_5GHZ]) {
+		mem_len += wiphy->bands[IEEE80211_BAND_5GHZ]->n_channels * sizeof(u32);
 	}
 	if (mem_len == 0) {
 		ret = -ENOTSUPP;
@@ -416,24 +416,24 @@ static int slsi_gscan_get_valid_channel(struct wiphy *wiphy,
 	}
 	switch (band) {
 	case WIFI_BAND_BG:
-		chan_count = slsi_gscan_put_channels(wiphy->bands[NL80211_BAND_2GHZ], false, false, chan_list);
+		chan_count = slsi_gscan_put_channels(wiphy->bands[IEEE80211_BAND_2GHZ], false, false, chan_list);
 		break;
 	case WIFI_BAND_A:
-		chan_count = slsi_gscan_put_channels(wiphy->bands[NL80211_BAND_5GHZ], true, false, chan_list);
+		chan_count = slsi_gscan_put_channels(wiphy->bands[IEEE80211_BAND_5GHZ], true, false, chan_list);
 		break;
 	case WIFI_BAND_A_DFS:
-		chan_count = slsi_gscan_put_channels(wiphy->bands[NL80211_BAND_5GHZ], false, true, chan_list);
+		chan_count = slsi_gscan_put_channels(wiphy->bands[IEEE80211_BAND_5GHZ], false, true, chan_list);
 		break;
 	case WIFI_BAND_A_WITH_DFS:
-		chan_count = slsi_gscan_put_channels(wiphy->bands[NL80211_BAND_5GHZ], false, false, chan_list);
+		chan_count = slsi_gscan_put_channels(wiphy->bands[IEEE80211_BAND_5GHZ], false, false, chan_list);
 		break;
 	case WIFI_BAND_ABG:
-		chan_count = slsi_gscan_put_channels(wiphy->bands[NL80211_BAND_2GHZ], true, false, chan_list);
-		chan_count += slsi_gscan_put_channels(wiphy->bands[NL80211_BAND_5GHZ], true, false, chan_list + chan_count);
+		chan_count = slsi_gscan_put_channels(wiphy->bands[IEEE80211_BAND_2GHZ], true, false, chan_list);
+		chan_count += slsi_gscan_put_channels(wiphy->bands[IEEE80211_BAND_5GHZ], true, false, chan_list + chan_count);
 		break;
 	case WIFI_BAND_ABG_WITH_DFS:
-		chan_count = slsi_gscan_put_channels(wiphy->bands[NL80211_BAND_2GHZ], false, false, chan_list);
-		chan_count += slsi_gscan_put_channels(wiphy->bands[NL80211_BAND_5GHZ], false, false, chan_list + chan_count);
+		chan_count = slsi_gscan_put_channels(wiphy->bands[IEEE80211_BAND_2GHZ], false, false, chan_list);
+		chan_count += slsi_gscan_put_channels(wiphy->bands[IEEE80211_BAND_5GHZ], false, false, chan_list + chan_count);
 		break;
 	default:
 		chan_count = 0;
@@ -2578,9 +2578,10 @@ static void slsi_lls_radio_stat_fill(struct slsi_dev *sdev, struct net_device *d
 				radio_chan->width = SLSI_LLS_CHAN_WIDTH_20;
 				SLSI_MUTEX_LOCK(ndev_vif->vif_mutex);
 				if (ndev_vif->vif_type == FAPI_VIFTYPE_STATION &&
-				    ndev_vif->sta.vif_status == SLSI_VIF_STATUS_CONNECTED &&
-				    ndev_vif->chan && ndev_vif->chan->hw_value == (chan_start + k))
-					radio_stat->channels[radio_stat->num_channels + k].on_time = radio_stat->on_time;
+				    ndev_vif->sta.vif_status == SLSI_VIF_STATUS_CONNECTED) {
+					if (ndev_vif->chan->hw_value == (chan_start + k))
+						radio_stat->channels[radio_stat->num_channels + k].on_time = radio_stat->on_time;
+				}
 				SLSI_MUTEX_UNLOCK(ndev_vif->vif_mutex);
 			}
 			radio_stat->num_channels += chan_count;
@@ -2592,9 +2593,10 @@ static void slsi_lls_radio_stat_fill(struct slsi_dev *sdev, struct net_device *d
 				radio_chan->width = SLSI_LLS_CHAN_WIDTH_20;
 				SLSI_MUTEX_LOCK(ndev_vif->vif_mutex);
 				if (ndev_vif->vif_type == FAPI_VIFTYPE_STATION &&
-				    ndev_vif->sta.vif_status == SLSI_VIF_STATUS_CONNECTED &&
-				    ndev_vif->chan && ndev_vif->chan->hw_value == (chan_start + (k*4)))
-					radio_stat->channels[radio_stat->num_channels + k].on_time = radio_stat->on_time;
+				    ndev_vif->sta.vif_status == SLSI_VIF_STATUS_CONNECTED) {
+					if (ndev_vif->chan->hw_value == (chan_start + (k*4)))
+						radio_stat->channels[radio_stat->num_channels + k].on_time = radio_stat->on_time;
+				}
 				SLSI_MUTEX_UNLOCK(ndev_vif->vif_mutex);
 			}
 			radio_stat->num_channels += chan_count;
@@ -3804,7 +3806,7 @@ void slsi_rx_event_log_indication(struct slsi_dev *sdev, struct net_device *dev,
 	SLSI_DBG3(sdev, SLSI_GSCAN,
 		  "slsi_rx_event_log_indication, event id = %d, len = %d\n", event_id, tlv_buffer__len);
 
-#if defined(CONFIG_SCSC_WIFILOGGER) && defined(CONFIG_SCSC_WLAN_ENHANCED_LOGGING)
+#ifdef CONFIG_SCSC_WIFILOGGER
 	SCSC_WLOG_FW_EVENT(WLOG_NORMAL, event_id, timestamp, fapi_get_data(skb), fapi_get_datalen(skb));
 #endif
 	while (i + 4 < tlv_buffer__len) {

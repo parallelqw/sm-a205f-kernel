@@ -13,7 +13,6 @@ __cert_list_start:
 	.incbin "certs/x509_certificate_list"
 __cert_list_end:
 
-	.align 4
 	.align 8
 	.globl VMLINUX_SYMBOL(system_certificate_list_size)
 VMLINUX_SYMBOL(system_certificate_list_size):

@@ -483,10 +483,8 @@ static int __init ssi_probe(struct platform_device *pd)
 	platform_set_drvdata(pd, ssi);
 
 	err = ssi_add_controller(ssi, pd);
-	if (err < 0) {
-		hsi_put_controller(ssi);
+	if (err < 0)
 		goto out1;
-	}
 
 	pm_runtime_irq_safe(&pd->dev);
 	pm_runtime_enable(&pd->dev);
@@ -508,7 +506,6 @@ static int __init ssi_probe(struct platform_device *pd)
 		if (!childpdev) {
 			err = -ENODEV;
 			dev_err(&pd->dev, "failed to create ssi controller port\n");
-			of_node_put(child);
 			goto out3;
 		}
 	}
@@ -520,9 +517,9 @@ out3:
 	device_for_each_child(&pd->dev, NULL, ssi_remove_ports);
 out2:
 	ssi_remove_controller(ssi);
-	pm_runtime_disable(&pd->dev);
 out1:
 	platform_set_drvdata(pd, NULL);
+	pm_runtime_disable(&pd->dev);
 
 	return err;
 }

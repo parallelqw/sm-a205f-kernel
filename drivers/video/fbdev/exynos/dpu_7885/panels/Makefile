@@ -5,7 +5,6 @@ obj-$(CONFIG_EXYNOS_DECON_LCD_S6E3FA7)	+= s6e3fa7_mipi_lcd.o s6e3fa7_lcd_ctrl.o
 obj-y += dsim_panel.o ../decon_board.o ../decon_notify.o ../decon_abd.o
 obj-$(CONFIG_DISPLAY_USE_INFO) += dpui.o
 obj-$(CONFIG_EXYNOS_DECON_MDNIE) += mdnie_lite.o
-obj-$(CONFIG_EXYNOS_DECON_MDNIE_CONTROL) += mdnie_control.o
 
 obj-$(and $(CONFIG_EXYNOS_DECON_LCD_S6E3FA7_A7Y18),$(CONFIG_SUPPORT_POC_FLASH)) += poc.o
 obj-$(and $(CONFIG_EXYNOS_DECON_LCD_EA8076_A30),$(CONFIG_SUPPORT_POC_FLASH)) += ea8076_a30_poc.o
@@ -38,9 +37,3 @@ obj-$(CONFIG_EXYNOS_DECON_LCD_S6E8FC0_A30C)	+= s6e8fc0_a30c_lcd_ctrl.o
 obj-$(CONFIG_EXYNOS_DECON_LCD_S6E8FC1_A30S)	+= s6e8fc1_a30s_lcd_ctrl.o
 obj-$(CONFIG_EXYNOS_DECON_LCD_HX83102D_A10E_JPN)	+= hx83102d_a10e_lcd_ctrl.o
 obj-$(CONFIG_EXYNOS_DECON_LCD_HX83102P_GTA4S)	+= hx83102p_gta4s_lcd_ctrl.o
-
-CFLAGS_s6e8fc0_a20_lcd_ctrl.o := $(call cc-disable-warning, int-conversion)
-CFLAGS_ea8076_a30_lcd_ctrl.o := $(call cc-disable-warning, int-conversion)
-CFLAGS_s6e8fc1_a30s_lcd_ctrl.o := $(call cc-disable-warning, int-conversion)
-CFLAGS_s6e8fc0_a40_lcd_ctrl.o := $(call cc-disable-warning, int-conversion)
-CFLAGS_ea8076_m30_lcd_ctrl.o := $(call cc-disable-warning, int-conversion)

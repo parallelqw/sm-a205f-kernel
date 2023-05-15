@@ -2384,7 +2384,7 @@ static void free_tx_buffers(struct s2io_nic *nic)
 			skb = s2io_txdl_getskb(&mac_control->fifos[i], txdp, j);
 			if (skb) {
 				swstats->mem_freed += skb->truesize;
-				dev_kfree_skb_irq(skb);
+				dev_kfree_skb(skb);
 				cnt++;
 			}
 		}
@@ -8625,7 +8625,7 @@ static void s2io_io_resume(struct pci_dev *pdev)
 			return;
 		}
 
-		if (do_s2io_prog_unicast(netdev, netdev->dev_addr) == FAILURE) {
+		if (s2io_set_mac_addr(netdev, netdev->dev_addr) == FAILURE) {
 			s2io_card_down(sp);
 			pr_err("Can't restore mac addr after reset.\n");
 			return;

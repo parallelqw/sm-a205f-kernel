@@ -187,16 +187,6 @@ void ieee80211_scan_rx(struct ieee80211_local *local, struct sk_buff *skb)
 	if (likely(!sdata1 && !sdata2))
 		return;
 
-	if (test_and_clear_bit(SCAN_BEACON_WAIT, &local->scanning)) {
-		/*
-		 * we were passive scanning because of radar/no-IR, but
-		 * the beacon/proberesp rx gives us an opportunity to upgrade
-		 * to active scan
-		 */
-		 set_bit(SCAN_BEACON_DONE, &local->scanning);
-		 ieee80211_queue_delayed_work(&local->hw, &local->scan_work, 0);
-	}
-
 	if (ieee80211_is_probe_resp(mgmt->frame_control)) {
 		struct cfg80211_scan_request *scan_req;
 		struct cfg80211_sched_scan_request *sched_scan_req;
@@ -280,7 +270,7 @@ static bool ieee80211_prep_hw_scan(struct ieee80211_local *local)
 		n_chans = req->n_channels;
 	} else {
 		do {
-			if (local->hw_scan_band == NUM_NL80211_BANDS)
+			if (local->hw_scan_band == IEEE80211_NUM_BANDS)
 				return false;
 
 			n_chans = 0;
@@ -360,6 +350,8 @@ static void __ieee80211_scan_completed(struct ieee80211_hw *hw, bool aborted)
 	scan_req = rcu_dereference_protected(local->scan_req,
 					     lockdep_is_held(&local->mtx));
 
+	if (scan_req != local->int_scan_req)
+		cfg80211_scan_done(scan_req, aborted);
 	RCU_INIT_POINTER(local->scan_req, NULL);
 
 	scan_sdata = rcu_dereference_protected(local->scan_sdata,
@@ -368,11 +360,6 @@ static void __ieee80211_scan_completed(struct ieee80211_hw *hw, bool aborted)
 
 	local->scanning = 0;
 	local->scan_chandef.chan = NULL;
-
-	synchronize_rcu();
-
-	if (scan_req != local->int_scan_req)
-		cfg80211_scan_done(scan_req, aborted);
 
 	/* Set power back to normal operating levels. */
 	ieee80211_hw_config(local, 0);
@@ -495,7 +482,7 @@ static void ieee80211_scan_state_send_probe(struct ieee80211_local *local,
 	int i;
 	struct ieee80211_sub_if_data *sdata;
 	struct cfg80211_scan_request *scan_req;
-	enum nl80211_band band = local->hw.conf.chandef.chan->band;
+	enum ieee80211_band band = local->hw.conf.chandef.chan->band;
 	u32 tx_flags;
 
 	scan_req = rcu_dereference_protected(local->scan_req,
@@ -624,8 +611,6 @@ static int __ieee80211_start_scan(struct ieee80211_sub_if_data *sdata,
 						IEEE80211_CHAN_RADAR)) ||
 		    !req->n_ssids) {
 			next_delay = IEEE80211_PASSIVE_CHANNEL_TIME;
-			if (req->n_ssids)
-				set_bit(SCAN_BEACON_WAIT, &local->scanning);
 		} else {
 			ieee80211_scan_state_send_probe(local, &next_delay);
 			next_delay = IEEE80211_CHANNEL_TIME;
@@ -806,8 +791,6 @@ static void ieee80211_scan_state_set_channel(struct ieee80211_local *local,
 	    !scan_req->n_ssids) {
 		*next_delay = IEEE80211_PASSIVE_CHANNEL_TIME;
 		local->next_scan_state = SCAN_DECISION;
-		if (scan_req->n_ssids)
-			set_bit(SCAN_BEACON_WAIT, &local->scanning);
 		return;
 	}
 
@@ -900,8 +883,6 @@ void ieee80211_scan_work(struct work_struct *work)
 			goto out;
 	}
 
-	clear_bit(SCAN_BEACON_WAIT, &local->scanning);
-
 	/*
 	 * as long as no delay is required advance immediately
 	 * without scheduling a new work
@@ -911,10 +892,6 @@ void ieee80211_scan_work(struct work_struct *work)
 			aborted = true;
 			goto out_complete;
 		}
-
-		if (test_and_clear_bit(SCAN_BEACON_DONE, &local->scanning) &&
-		    local->next_scan_state == SCAN_DECISION)
-			local->next_scan_state = SCAN_SEND_PROBE;
 
 		switch (local->next_scan_state) {
 		case SCAN_DECISION:
@@ -972,7 +949,7 @@ int ieee80211_request_ibss_scan(struct ieee80211_sub_if_data *sdata,
 {
 	struct ieee80211_local *local = sdata->local;
 	int ret = -EBUSY, i, n_ch = 0;
-	enum nl80211_band band;
+	enum ieee80211_band band;
 
 	mutex_lock(&local->mtx);
 
@@ -984,7 +961,7 @@ int ieee80211_request_ibss_scan(struct ieee80211_sub_if_data *sdata,
 	if (!channels) {
 		int max_n;
 
-		for (band = 0; band < NUM_NL80211_BANDS; band++) {
+		for (band = 0; band < IEEE80211_NUM_BANDS; band++) {
 			if (!local->hw.wiphy->bands[band])
 				continue;
 
@@ -1104,7 +1081,7 @@ int __ieee80211_request_sched_scan_start(struct ieee80211_sub_if_data *sdata,
 	struct ieee80211_scan_ies sched_scan_ies = {};
 	struct cfg80211_chan_def chandef;
 	int ret, i, iebufsz, num_bands = 0;
-	u32 rate_masks[NUM_NL80211_BANDS] = {};
+	u32 rate_masks[IEEE80211_NUM_BANDS] = {};
 	u8 bands_used = 0;
 	u8 *ie;
 	size_t len;
@@ -1116,7 +1093,7 @@ int __ieee80211_request_sched_scan_start(struct ieee80211_sub_if_data *sdata,
 	if (!local->ops->sched_scan_start)
 		return -ENOTSUPP;
 
-	for (i = 0; i < NUM_NL80211_BANDS; i++) {
+	for (i = 0; i < IEEE80211_NUM_BANDS; i++) {
 		if (local->hw.wiphy->bands[i]) {
 			bands_used |= BIT(i);
 			rate_masks[i] = (u32) -1;

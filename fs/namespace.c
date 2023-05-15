@@ -1315,21 +1315,6 @@ vfs_kern_mount(struct file_system_type *type, int flags, const char *name, void 
 }
 EXPORT_SYMBOL_GPL(vfs_kern_mount);
 
-struct vfsmount *
-vfs_submount(const struct dentry *mountpoint, struct file_system_type *type,
-	     const char *name, void *data)
-{
-	/* Until it is worked out how to pass the user namespace
-	 * through from the parent mount to the submount don't support
-	 * unprivileged mounts with submounts.
-	 */
-	if (mountpoint->d_sb->s_user_ns != &init_user_ns)
-		return ERR_PTR(-EPERM);
-
-	return vfs_kern_mount(type, MS_SUBMOUNT, name, data);
-}
-EXPORT_SYMBOL_GPL(vfs_submount);
-
 static struct mount *clone_mnt(struct mount *old, struct dentry *root,
 					int flag)
 {
@@ -2819,7 +2804,7 @@ static int do_remount(struct path *path, int flags, int mnt_flags,
 		/* Was the nodev implicitly added in mount? */
 		if ((mnt->mnt_ns->user_ns != &init_user_ns) &&
 		    !(sb->s_type->fs_flags & FS_USERNS_DEV_MOUNT)) {
-		mnt_flags |= MNT_NODEV;
+			mnt_flags |= MNT_NODEV;
 		} else {
 			return -EPERM;
 		}
@@ -3378,8 +3363,8 @@ long do_mount(const char *dev_name, const char __user *dir_name,
 		goto dput_out;
 
 	/* Default to relatime unless overriden */
-	//if (!(flags & MS_NOATIME))
-		//mnt_flags |= MNT_RELATIME;
+	if (!(flags & MS_NOATIME))
+		mnt_flags |= MNT_RELATIME;
 
 	/* Separate the per-mountpoint flags */
 	if (flags & MS_NOSUID)
@@ -3388,9 +3373,9 @@ long do_mount(const char *dev_name, const char __user *dir_name,
 		mnt_flags |= MNT_NODEV;
 	if (flags & MS_NOEXEC)
 		mnt_flags |= MNT_NOEXEC;
-	//if (flags & MS_NOATIME)
-	mnt_flags |= MNT_NOATIME;
-	//if (flags & MS_NODIRATIME)
+	if (flags & MS_NOATIME)
+		mnt_flags |= MNT_NOATIME;
+	if (flags & MS_NODIRATIME)
 		mnt_flags |= MNT_NODIRATIME;
 	if (flags & MS_STRICTATIME)
 		mnt_flags &= ~(MNT_RELATIME | MNT_NOATIME);
@@ -3407,7 +3392,7 @@ long do_mount(const char *dev_name, const char __user *dir_name,
 
 	flags &= ~(MS_NOSUID | MS_NOEXEC | MS_NODEV | MS_ACTIVE | MS_BORN |
 		   MS_NOATIME | MS_NODIRATIME | MS_RELATIME| MS_KERNMOUNT |
-		   MS_STRICTATIME | MS_SUBMOUNT);
+		   MS_STRICTATIME);
 
 	if (flags & MS_REMOUNT)
 		retval = do_remount(&path, flags & ~MS_REMOUNT, mnt_flags,
@@ -3770,8 +3755,8 @@ SYSCALL_DEFINE2(pivot_root, const char __user *, new_root,
 	/* make certain new is below the root */
 	if (!is_path_reachable(new_mnt, new.dentry, &root))
 		goto out4;
-	lock_mount_hash();
 	root_mp->m_count++; /* pin it so it won't go away */
+	lock_mount_hash();
 	detach_mnt(new_mnt, &parent_path);
 	detach_mnt(root_mnt, &root_parent);
 #ifdef CONFIG_RKP_NS_PROT
@@ -4148,16 +4133,10 @@ static int mntns_install(struct nsproxy *nsproxy, struct ns_common *ns)
 	return 0;
 }
 
-static struct user_namespace *mntns_owner(struct ns_common *ns)
-{
-	return to_mnt_ns(ns)->user_ns;
-}
-
 const struct proc_ns_operations mntns_operations = {
 	.name		= "mnt",
 	.type		= CLONE_NEWNS,
 	.get		= mntns_get,
 	.put		= mntns_put,
 	.install	= mntns_install,
-	.owner		= mntns_owner,
 };

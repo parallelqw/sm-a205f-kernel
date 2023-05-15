@@ -224,8 +224,7 @@ static int dma_chan_get(struct dma_chan *chan)
 	/* The channel is already in use, update client count */
 	if (chan->client_count) {
 		__module_get(owner);
-		chan->client_count++;
-		return 0;
+		goto out;
 	}
 
 	if (!try_module_get(owner))
@@ -238,11 +237,11 @@ static int dma_chan_get(struct dma_chan *chan)
 			goto err_out;
 	}
 
-	chan->client_count++;
-
 	if (!dma_has_cap(DMA_PRIVATE, chan->device->cap_mask))
 		balance_ref_count(chan);
 
+out:
+	chan->client_count++;
 	return 0;
 
 err_out:
@@ -945,9 +944,6 @@ int dma_async_device_register(struct dma_device *device)
 		device->privatecnt++;	/* Always private */
 	dma_channel_rebalance();
 	mutex_unlock(&dma_list_mutex);
-
-	if (!chancnt)
-		kfree(idr_ref);
 
 	return 0;
 

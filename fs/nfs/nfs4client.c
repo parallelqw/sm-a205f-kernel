@@ -282,7 +282,6 @@ int nfs40_init_client(struct nfs_client *clp)
 	ret = nfs4_setup_slot_table(tbl, NFS4_MAX_SLOT_TABLE,
 					"NFSv4.0 transport Slot table");
 	if (ret) {
-		nfs4_shutdown_slot_table(tbl);
 		kfree(tbl);
 		return ret;
 	}
@@ -686,12 +685,9 @@ found:
 
 static void nfs4_destroy_server(struct nfs_server *server)
 {
-	LIST_HEAD(freeme);
-
 	nfs_server_return_all_delegations(server);
 	unset_pnfs_layoutdriver(server);
-	nfs4_purge_state_owners(server, &freeme);
-	nfs4_free_state_owners(&freeme);
+	nfs4_purge_state_owners(server);
 }
 
 /*
@@ -752,7 +748,7 @@ nfs4_find_client_sessionid(struct net *net, const struct sockaddr *addr,
 
 	spin_lock(&nn->nfs_client_lock);
 	list_for_each_entry(clp, &nn->nfs_client_list, cl_share_link) {
-		if (!nfs4_cb_match_client(addr, clp, minorversion))
+		if (nfs4_cb_match_client(addr, clp, minorversion) == false)
 			continue;
 
 		if (!nfs4_has_session(clp))
@@ -1219,11 +1215,8 @@ int nfs4_update_server(struct nfs_server *server, const char *hostname,
 		goto out;
 	}
 
-	if (server->nfs_client->cl_hostname == NULL) {
+	if (server->nfs_client->cl_hostname == NULL)
 		server->nfs_client->cl_hostname = kstrdup(hostname, GFP_KERNEL);
-		if (server->nfs_client->cl_hostname == NULL)
-			return -ENOMEM;
-	}
 	nfs_server_insert_lists(server);
 
 	error = nfs_probe_destination(server);

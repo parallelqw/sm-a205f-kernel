@@ -845,7 +845,7 @@ config:
 		if (ret) {
 			mserr_hw("[F:%d]mcsc rdma_cfg failed\n",
 				instance, hw_ip, frame->fcount);
-			return ret;
+			goto shot_fail;
 		}
 	}
 
@@ -891,6 +891,15 @@ config:
 	hw_mcsc->instance = instance;
 	clear_bit(HW_MCSC_OUT_CLEARED_ALL, &hw_mcsc_out_configured);
 	set_bit(HW_CONFIG, &hw_ip->state);
+
+	if (ret)
+		goto shot_fail;
+
+	return 0;
+
+shot_fail:
+	if (!test_bit(FIMC_IS_GROUP_OTF_INPUT, &head->state))
+		up(&hw_ip->smp_resource);
 
 	return ret;
 }
@@ -1292,7 +1301,7 @@ void fimc_is_hw_mcsc_frame_done(struct fimc_is_hw_ip *hw_ip, struct fimc_is_fram
 	case IS_SHOT_SUCCESS:
 		framemgr = hw_ip->framemgr;
 		framemgr_e_barrier_common(framemgr, 0, flags);
-		frame = peek_frame(framemgr, (enum fimc_is_frame_state) FS_HW_WAIT_DONE);
+		frame = peek_frame(framemgr, FS_HW_WAIT_DONE);
 		framemgr_x_barrier_common(framemgr, 0, flags);
 		if (frame == NULL) {
 			mserr_hw("[F:%d] frame(null) @FS_HW_WAIT_DONE!!", instance,
@@ -2707,10 +2716,12 @@ int fimc_is_hw_mcsc_restore(struct fimc_is_hw_ip *hw_ip, u32 instance)
 	int ret = 0;
 	struct fimc_is_hw_mcsc *hw_mcsc;
 	struct is_param_region *param;
+	struct fimc_is_group *head;
 
 	BUG_ON(!hw_ip);
 
 	hw_mcsc = (struct fimc_is_hw_mcsc *)hw_ip->priv_info;
+	head = GET_HEAD_GROUP_IN_DEVICE(FIMC_IS_DEVICE_ISCHAIN, hw_ip->group[instance]);
 
 	fimc_is_hw_mcsc_reset(hw_ip);
 
@@ -2726,7 +2737,11 @@ int fimc_is_hw_mcsc_restore(struct fimc_is_hw_ip *hw_ip, u32 instance)
 	info_hw("[RECOVERY]: tdnr update param\n");
 
 	fimc_is_hw_mcsc_clear_interrupt(hw_ip);
-	fimc_is_scaler_start(hw_ip->regs, hw_ip->id);
+
+	if (!test_bit(FIMC_IS_GROUP_OTF_INPUT, &head->state))
+		up(&hw_ip->smp_resource);
+	else
+		fimc_is_scaler_start(hw_ip->regs, hw_ip->id);
 
 	return ret;
 }

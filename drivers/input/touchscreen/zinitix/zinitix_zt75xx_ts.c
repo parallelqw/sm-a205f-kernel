@@ -1314,17 +1314,9 @@ static bool ts_read_coord(struct bt532_ts_info *info)
 			input_sync(info->input_dev);
 		} else if (zinitix_bit_test(lpm_mode_reg.data, BIT_EVENT_AOD)) {
 			if (info->aot_enable) {
-#ifdef CONFIG_USB_ANDROID_SAMSUNG_MTP
 				input_report_key(info->input_dev, KEY_HOMEPAGE, 1);
-#else
-				input_report_key(info->input_dev, KEY_WAKEUP, 1);
-#endif
 				input_sync(info->input_dev);
-#ifdef CONFIG_USB_ANDROID_SAMSUNG_MTP
 				input_report_key(info->input_dev, KEY_HOMEPAGE, 0);
-#else
-				input_report_key(info->input_dev, KEY_WAKEUP, 0);
-#endif
 				input_sync(info->input_dev);
 				/* request from sensor team */
 				if (info->pdata->support_ear_detect) {
@@ -1335,21 +1327,21 @@ static bool ts_read_coord(struct bt532_ts_info *info)
 				}
 
 				input_info(true, &client->dev, "AOT Doubletab\n");
-			}	
-		
+			} else {
+				info->scrub_id = SPONGE_EVENT_TYPE_AOD_DOUBLETAB;
+				if (read_data(info->client, ZT75XX_GET_AOD_X_REG, (u8 *)&info->scrub_x, 2) < 0)
+					input_info(true, &client->dev, "aod_x_reg read fail\n");
+				if (read_data(info->client, ZT75XX_GET_AOD_Y_REG, (u8 *)&info->scrub_y, 2) < 0)
+					input_info(true, &client->dev, "aod_y_reg read fail\n");
+
+				input_report_key(info->input_dev, KEY_BLACK_UI_GESTURE, 1);
+				input_sync(info->input_dev);
+				input_report_key(info->input_dev, KEY_BLACK_UI_GESTURE, 0);
+				input_sync(info->input_dev);
+
+				input_info(true, &client->dev, "AOD Doubletab\n");
+			}
 		}
-	}
-	if (!info->aot_enable && zinitix_bit_test(info->touch_info.status, BIT_GESTURE)) {
-		info->scrub_id = SPONGE_EVENT_TYPE_AOD_DOUBLETAB;	
-		if (read_data(info->client, ZT75XX_GET_AOD_X_REG, (u8 *)&info->scrub_x, 2) < 0)
-			input_info(true, &client->dev, "aod_x_reg read fail\n");
-		if (read_data(info->client, ZT75XX_GET_AOD_Y_REG, (u8 *)&info->scrub_y, 2) < 0)
-			input_info(true, &client->dev, "aod_y_reg read fail\n");
-		input_report_key(info->input_dev, KEY_WAKEUP, 1);
-		input_sync(info->input_dev);	
-		input_report_key(info->input_dev, KEY_WAKEUP, 0);
-		input_sync(info->input_dev);
-		input_info(true, &client->dev, "AOD Doubletab\n");
 	}
 
 	if (info->pdata->support_ear_detect && zinitix_bit_test(info->touch_info.status, BIT_PROXIMITY)) {
@@ -2486,10 +2478,6 @@ static void location_detect(struct bt532_ts_info *info, char *loc, int x, int y)
 		strncat(loc, "N", 1);
 }
 
-#define DELAY 150000000 // In nanoseconds (1 s = 1,000,000,000 ns)
-#define DELAY_MAX 500000000
-#include <linux/time.h>
-
 static irqreturn_t bt532_touch_work(int irq, void *data)
 {
 	struct bt532_ts_info* info = (struct bt532_ts_info*)data;
@@ -2501,8 +2489,6 @@ static irqreturn_t bt532_touch_work(int irq, void *data)
 	u8 prev_sub_status;
 	u32 x, y, w, maxX, maxY;
 	u32 z;
-	static long current_time, before_time;
-	struct timespec ts;
 	u8 palm = 0;
 #ifdef SUPPORTED_PALM_TOUCH
 	u32	minor_w;
@@ -2513,7 +2499,7 @@ static irqreturn_t bt532_touch_work(int irq, void *data)
 	u16 ic_status;
 	char location[7] = "";
 	int ret;
-	long diff;
+
 	if((pdata->support_lpm_mode) && (info->spay_enable || info->aod_enable || info->aot_enable)){
 		pm_wakeup_event(info->input_dev->dev.parent, 2000);
 
@@ -2647,21 +2633,6 @@ static irqreturn_t bt532_touch_work(int irq, void *data)
 							info->touch_info.coord[i].y - info->pressed_y[i],
 							info->move_count[i], __LINE__);
 #endif
-				getnstimeofday(&ts);
-				current_time = ts.tv_nsec;
-				if (info->aot_enable) {
-					info->scrub_id = SPONGE_EVENT_TYPE_AOD_DOUBLETAB;	
-					input_info(true, &client->dev, "[DT2W] Tab detect\n");
-					diff = current_time - before_time;
-					if(DELAY <= diff && diff <= DELAY_MAX){
-						input_info(true, &client->dev, "[DT2W] Double tap detect\n");
-						input_report_key(info->input_dev, KEY_WAKEUP, 1);
-						input_sync(info->input_dev);	
-						input_report_key(info->input_dev, KEY_WAKEUP, 0);
-						input_sync(info->input_dev);
-					}
-				}
-				before_time = current_time;
 				if(info->finger_cnt1 > 0)
 					info->finger_cnt1--;
 				if (info->finger_cnt1 == 0) {
@@ -8114,11 +8085,6 @@ static void aot_enable(void *device_data)
 	
 	sec_cmd_set_default_result(sec);
 
-	if (val == info->aot_enable) {
-		snprintf(buff, sizeof(buff), "NOOP");
-		goto result;
-	}
-
 	if (val) {
 		info->aot_enable = 1;
 		zinitix_bit_set(info->lpm_mode, BIT_EVENT_AOT);
@@ -8129,7 +8095,6 @@ static void aot_enable(void *device_data)
 
 	snprintf(buff, sizeof(buff),
 			"aot_enable %s", val ? "enable" : "disable");
-result:
 	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
 
 	mutex_lock(&sec->cmd_lock);
@@ -8248,7 +8213,6 @@ static void glove_mode(void *device_data)
 {
 	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
 	struct bt532_ts_info *info = container_of(sec, struct bt532_ts_info, sec);
-	static bool glove_mode_enabled = false;
 	struct i2c_client *client = info->client;
 	char buff[SEC_CMD_STR_LEN] = { 0 };
 
@@ -8258,29 +8222,15 @@ static void glove_mode(void *device_data)
 		snprintf(buff, sizeof(buff), "%s", "NG");
 		sec->cmd_state = SEC_CMD_STATUS_FAIL;
 	} else {
-		if (sec->cmd_param[0]) {
-			if (glove_mode_enabled) {
-				sec->cmd_state == SEC_CMD_STATUS_ALREADY;
-				goto result;
-			}
+		if (sec->cmd_param[0])
 			zinitix_bit_set(m_optional_mode.select_mode.flag, DEF_OPTIONAL_MODE_SENSITIVE_BIT);
-		} else {
-			if (!glove_mode_enabled) {
-				sec->cmd_state == SEC_CMD_STATUS_ALREADY;
-				goto result;
-			}
+		else
 			zinitix_bit_clr(m_optional_mode.select_mode.flag, DEF_OPTIONAL_MODE_SENSITIVE_BIT);
-		}
-		glove_mode_enabled = sec->cmd_param[0];
+
 		snprintf(buff, sizeof(buff), "%s", "OK");
 		sec->cmd_state = SEC_CMD_STATUS_OK;
 	}
 
-result:
-	if (sec->cmd_state == SEC_CMD_STATUS_ALREADY) {
-		snprintf(buff, sizeof(buff), "%s", "NOOP");
-		sec->cmd_state = SEC_CMD_STATUS_OK;
-	}
 	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
 
 	mutex_lock(&sec->cmd_lock);
@@ -10297,11 +10247,7 @@ static int bt532_ts_probe(struct i2c_client *client,
 
 	if(pdata->support_lpm_mode){
 		set_bit(KEY_BLACK_UI_GESTURE, info->input_dev->keybit);
-#ifdef CONFIG_USB_ANDROID_SAMSUNG_MTP
 		set_bit(KEY_HOMEPAGE, info->input_dev->keybit);
-#else
-		set_bit(KEY_WAKEUP, info->input_dev->keybit);
-#endif
 	}
 
 	input_set_abs_params(info->input_dev, ABS_MT_POSITION_X,

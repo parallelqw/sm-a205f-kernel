@@ -1486,7 +1486,7 @@ static int smsc75xx_bind(struct usbnet *dev, struct usb_interface *intf)
 	ret = smsc75xx_wait_ready(dev, 0);
 	if (ret < 0) {
 		netdev_warn(dev->net, "device not ready in smsc75xx_bind\n");
-		goto free_pdata;
+		return ret;
 	}
 
 	smsc75xx_init_mac_address(dev);
@@ -1495,7 +1495,7 @@ static int smsc75xx_bind(struct usbnet *dev, struct usb_interface *intf)
 	ret = smsc75xx_reset(dev);
 	if (ret < 0) {
 		netdev_warn(dev->net, "smsc75xx_reset error %d\n", ret);
-		goto cancel_work;
+		return ret;
 	}
 
 	dev->net->netdev_ops = &smsc75xx_netdev_ops;
@@ -1504,13 +1504,6 @@ static int smsc75xx_bind(struct usbnet *dev, struct usb_interface *intf)
 	dev->net->hard_header_len += SMSC75XX_TX_OVERHEAD;
 	dev->hard_mtu = dev->net->mtu + dev->net->hard_header_len;
 	return 0;
-
-cancel_work:
-	cancel_work_sync(&pdata->set_multicast);
-free_pdata:
-	kfree(pdata);
-	dev->data[0] = 0;
-	return ret;
 }
 
 static void smsc75xx_unbind(struct usbnet *dev, struct usb_interface *intf)
@@ -1520,6 +1513,7 @@ static void smsc75xx_unbind(struct usbnet *dev, struct usb_interface *intf)
 		cancel_work_sync(&pdata->set_multicast);
 		netif_dbg(dev, ifdown, dev->net, "free pdata\n");
 		kfree(pdata);
+		pdata = NULL;
 		dev->data[0] = 0;
 	}
 }
@@ -2202,13 +2196,6 @@ static int smsc75xx_rx_fixup(struct usbnet *dev, struct sk_buff *skb)
 		/* get the packet length */
 		size = (rx_cmd_a & RX_CMD_A_LEN) - RXW_PADDING;
 		align_count = (4 - ((size + RXW_PADDING) % 4)) % 4;
-
-		if (unlikely(size > skb->len)) {
-			netif_dbg(dev, rx_err, dev->net,
-				  "size err rx_cmd_a=0x%08x\n",
-				  rx_cmd_a);
-			return 0;
-		}
 
 		if (unlikely(rx_cmd_a & RX_CMD_A_RED)) {
 			netif_dbg(dev, rx_err, dev->net,

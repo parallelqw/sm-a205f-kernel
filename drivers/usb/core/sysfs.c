@@ -472,10 +472,7 @@ static ssize_t usb2_hardware_lpm_store(struct device *dev,
 
 	if (!ret) {
 		udev->usb2_hw_lpm_allowed = value;
-		if (value)
-			ret = usb_enable_usb2_hardware_lpm(udev);
-		else
-			ret = usb_disable_usb2_hardware_lpm(udev);
+		ret = usb_set_usb2_hardware_lpm(udev, value);
 	}
 
 	usb_unlock_device(udev);
@@ -825,6 +822,7 @@ read_descriptors(struct file *filp, struct kobject *kobj,
 	 * Following that are the raw descriptor entries for all the
 	 * configurations (config plus subsidiary descriptors).
 	 */
+	usb_lock_device(udev);
 	for (cfgno = -1; cfgno < udev->descriptor.bNumConfigurations &&
 			nleft > 0; ++cfgno) {
 		if (cfgno < 0) {
@@ -845,6 +843,7 @@ read_descriptors(struct file *filp, struct kobject *kobj,
 			off -= srclen;
 		}
 	}
+	usb_unlock_device(udev);
 	return count - nleft;
 }
 

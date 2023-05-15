@@ -115,17 +115,6 @@ void panic(const char *fmt, ...)
 		ecd_printf("Debugging in Panic on ECD\n");
 		ecd_do_break_now();
 	}
-
-	if (panic_on_warn) {
-		/*
-		 * This thread may hit another WARN() in the panic path.
-		 * Resetting this prevents additional WARN() from panicking the
-		 * system on this thread.  Other threads are blocked by the
-		 * panic_mutex in panic().
-		 */
-		panic_on_warn = 0;
-	}
-
 	/*
 	 * Disable local interrupts. This will prevent panic_smp_self_stop
 	 * from deadlocking the first cpu that invokes the panic, since
@@ -133,7 +122,6 @@ void panic(const char *fmt, ...)
 	 * after the panic_lock is acquired) from invoking panic again.
 	 */
 	local_irq_disable();
-	preempt_disable_notrace();
 
 	/*
 	 * It's possible to come here directly from a panic-assertion and
@@ -188,10 +176,7 @@ void panic(const char *fmt, ...)
 #ifdef CONFIG_SEC_DUMP_SUMMARY
 	sec_debug_save_panic_info(buf, (unsigned long)__builtin_return_address(0));
 #endif
-
-#ifdef CONFIG_SCHED_DEBUG
 	sysrq_sched_debug_show();
-#endif
 	/*
 	 * If we have crashed and we have a crash kernel loaded let it handle
 	 * everything else.
@@ -537,8 +522,16 @@ static void warn_slowpath_common(const char *file, int line, void *caller,
 	if (args)
 		vprintk(args->fmt, args->args);
 
-	if (panic_on_warn)
+	if (panic_on_warn) {
+		/*
+		 * This thread may hit another WARN() in the panic path.
+		 * Resetting this prevents additional WARN() from panicking the
+		 * system on this thread.  Other threads are blocked by the
+		 * panic_mutex in panic().
+		 */
+		panic_on_warn = 0;
 		panic("panic_on_warn set ...\n");
+	}
 
 	print_modules();
 	dump_stack();

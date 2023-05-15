@@ -35,7 +35,6 @@
 #include <linux/fs_struct.h>
 #include <linux/posix_acl.h>
 #include <linux/hash.h>
-#include <linux/init_task.h>
 #include <asm/uaccess.h>
 
 #include "internal.h"
@@ -1387,7 +1386,7 @@ static int follow_dotdot_rcu(struct nameidata *nd)
 			nd->path.dentry = parent;
 			nd->seq = seq;
 			if (unlikely(!path_connected(&nd->path)))
-				return -ECHILD;
+				return -ENOENT;
 			break;
 		} else {
 			struct mount *mnt = real_mount(nd->path.mnt);
@@ -2774,12 +2773,6 @@ int vfs_create(struct inode *dir, struct dentry *dentry, umode_t mode,
 }
 EXPORT_SYMBOL(vfs_create);
 
-bool may_open_dev(const struct path *path)
-{
-	return !(path->mnt->mnt_flags & MNT_NODEV) &&
-		!(path->mnt->mnt_sb->s_iflags & SB_I_NODEV);
-}
-
 static int may_open(struct path *path, int acc_mode, int flag)
 {
 	struct dentry *dentry = path->dentry;
@@ -2803,7 +2796,7 @@ static int may_open(struct path *path, int acc_mode, int flag)
 		break;
 	case S_IFBLK:
 	case S_IFCHR:
-		if (!may_open_dev(path))
+		if (path->mnt->mnt_flags & MNT_NODEV)
 			return -EACCES;
 		/*FALLTHRU*/
 	case S_IFIFO:
@@ -4782,7 +4775,7 @@ int __page_symlink(struct inode *inode, const char *symname, int len, int nofs)
 {
 	struct address_space *mapping = inode->i_mapping;
 	struct page *page;
-	void *fsdata = NULL;
+	void *fsdata;
 	int err;
 	char *kaddr;
 	unsigned int flags = AOP_FLAG_UNINTERRUPTIBLE;

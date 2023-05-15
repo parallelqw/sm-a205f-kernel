@@ -151,10 +151,6 @@ static int mmc_queue_thread(void *d)
 		sched_setscheduler(current, SCHED_FIFO, &scheduler_params);
 	}
 
-	scheduler_params.sched_priority = 1;
-
-	sched_setscheduler(current, SCHED_FIFO, &scheduler_params);
-
 	current->flags |= PF_MEMALLOC;
 
 	down(&mq->thread_sem);

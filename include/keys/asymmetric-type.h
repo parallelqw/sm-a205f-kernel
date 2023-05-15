@@ -15,7 +15,6 @@
 #define _KEYS_ASYMMETRIC_TYPE_H
 
 #include <linux/key-type.h>
-#include <linux/verification.h>
 
 extern struct key_type key_type_asymmetric;
 

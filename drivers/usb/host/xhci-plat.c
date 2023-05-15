@@ -168,7 +168,7 @@ static int xhci_plat_probe(struct platform_device *pdev)
 			goto disable_clk;
 	}
 
-	device_set_wakeup_capable(&pdev->dev, true);
+	device_wakeup_enable(hcd->self.controller);
 
 	xhci = hcd_to_xhci(hcd);
 	xhci->clk = clk;
@@ -331,7 +331,6 @@ MODULE_DEVICE_TABLE(acpi, usb_xhci_acpi_match);
 static struct platform_driver usb_xhci_driver = {
 	.probe	= xhci_plat_probe,
 	.remove	= xhci_plat_remove,
-	.shutdown = usb_hcd_platform_shutdown,
 	.driver	= {
 		.name = "xhci-hcd",
 		.pm = DEV_PM_OPS,

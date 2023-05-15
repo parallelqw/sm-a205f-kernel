@@ -65,7 +65,6 @@ static int populate_dir(struct kobject *kobj)
 
 static int create_dir(struct kobject *kobj)
 {
-	const struct kobj_type *ktype = get_ktype(kobj);
 	const struct kobj_ns_type_operations *ops;
 	int error;
 
@@ -77,14 +76,6 @@ static int create_dir(struct kobject *kobj)
 	if (error) {
 		sysfs_remove_dir(kobj);
 		return error;
-	}
-
-	if (ktype) {
-		error = sysfs_create_groups(kobj, ktype->default_groups);
-		if (error) {
-			sysfs_remove_dir(kobj);
-			return error;
-		}
 	}
 
 	/*
@@ -576,16 +567,11 @@ EXPORT_SYMBOL_GPL(kobject_move);
 void kobject_del(struct kobject *kobj)
 {
 	struct kernfs_node *sd;
-	const struct kobj_type *ktype = get_ktype(kobj);
 
 	if (!kobj)
 		return;
 
 	sd = kobj->sd;
-
-	if (ktype)
-		sysfs_remove_groups(kobj, ktype->default_groups);
-
 	sysfs_remove_dir(kobj);
 	sysfs_put(sd);
 
@@ -613,15 +599,12 @@ struct kobject *kobject_get(struct kobject *kobj)
 }
 EXPORT_SYMBOL(kobject_get);
 
-struct kobject * __must_check kobject_get_unless_zero(struct kobject *kobj)
+static struct kobject * __must_check kobject_get_unless_zero(struct kobject *kobj)
 {
-	if (!kobj)
-		return NULL;
 	if (!kref_get_unless_zero(&kobj->kref))
 		kobj = NULL;
 	return kobj;
 }
-EXPORT_SYMBOL(kobject_get_unless_zero);
 
 /*
  * kobject_cleanup - free kobject resources.

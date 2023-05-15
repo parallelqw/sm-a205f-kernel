@@ -9,8 +9,6 @@ config ARM64
 	select ARCH_HAS_SG_CHAIN
 	select ARCH_HAS_TICK_BROADCAST if GENERIC_CLOCKEVENTS_BROADCAST
 	select ARCH_USE_CMPXCHG_LOCKREF
-	select ARCH_SUPPORTS_LTO_CLANG
-	select ARCH_SUPPORTS_THINLTO
 	select ARCH_SUPPORTS_ATOMIC_RMW
 	select ARCH_WANT_OPTIONAL_GPIOLIB
 	select ARCH_WANT_COMPAT_IPC_PARSE_VERSION
@@ -61,6 +59,7 @@ config ARM64
 	select HAVE_ARCH_SECCOMP_FILTER
 	select HAVE_ARCH_TRACEHOOK
 	select HAVE_BPF_JIT
+	select HAVE_EBPF_JIT
 	select HAVE_C_RECORDMCOUNT
 	select HAVE_CC_STACKPROTECTOR
 	select HAVE_CMPXCHG_DOUBLE
@@ -96,6 +95,7 @@ config ARM64
 	select PERF_USE_VMALLOC
 	select POWER_RESET
 	select POWER_SUPPLY
+	select RTC_LIB
 	select SPARSE_IRQ
 	select SYSCTL_EXCEPTION_TRACE
 	select HAVE_CONTEXT_TRACKING
@@ -424,7 +424,7 @@ config ARM64_ERRATUM_1024718
 	help
 	  This option adds work around for Arm Cortex-A55 Erratum 1024718.
 
-	  Affected Cortex-A55 cores (all revisions) could cause incorrect
+	  Affected Cortex-A55 cores (r0p0, r0p1, r1p0) could cause incorrect
 	  update of the hardware dirty bit when the DBM/AP bits are updated
 	  without a break-before-make. The work around is to disable the usage
 	  of hardware DBM locally on the affected cores. CPUs not affected by
@@ -723,20 +723,6 @@ config NR_CLUSTERS
 	range 1 4096
 	# These have to remain sorted largest to smallest
 	default "2"
-
-config LITTLE_CPU_MASK
-	int "Bitmask of available LITTLE CPUs"
-	help
-	  This is a bitmask specifying which of the CPUs are LITTLE in a
-	  heterogeneous system. Use 0 if you are unsure, which just results in
-	  this storing the bitmask of all available CPUs.
-
-config BIG_CPU_MASK
-	int "Bitmask of available big CPUs"
-	help
-	  This is a bitmask specifying which of the CPUs are big in a
-	  heterogeneous system. Use 0 if you are unsure, which just results in
-	  this storing the bitmask of all available CPUs.
 
 config HOTPLUG_CPU
 	bool "Support for hot-pluggable CPUs"
@@ -1222,13 +1208,6 @@ config KDP_TEST
 	help
 	  it enables kdp test.
 
-config EUREKA_CUSTOM_DT_NODES
-	bool "Enable Eureka custom DT nodes"
-	depends on SOC_EXYNOS7885
-	default n
-	help
-	  This option provides some custom DT nodes to be used with dtb.
-
 config BUILD_ARM64_APPENDED_DTB_IMAGE
 	bool "Build a concatenated Image.gz/dtb by default"
 	depends on OF
@@ -1325,8 +1304,6 @@ source "fs/Kconfig"
 source "arch/arm64/kvm/Kconfig"
 
 source "arch/arm64/Kconfig.debug"
-
-source "arch/arm64/Kconfig.exynos"
 
 source "security/Kconfig"
 

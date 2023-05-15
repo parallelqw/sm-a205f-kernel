@@ -1677,8 +1677,7 @@ static int smsc911x_stop(struct net_device *dev)
 }
 
 /* Entry point for transmitting a packet */
-static netdev_tx_t
-smsc911x_hard_start_xmit(struct sk_buff *skb, struct net_device *dev)
+static int smsc911x_hard_start_xmit(struct sk_buff *skb, struct net_device *dev)
 {
 	struct smsc911x_data *pdata = netdev_priv(dev);
 	unsigned int freespace;
@@ -2428,7 +2427,7 @@ static int smsc911x_drv_probe(struct platform_device *pdev)
 	if (irq == -EPROBE_DEFER) {
 		retval = -EPROBE_DEFER;
 		goto out_0;
-	} else if (irq < 0) {
+	} else if (irq <= 0) {
 		pr_warn("Could not allocate irq resource\n");
 		retval = -ENODEV;
 		goto out_0;

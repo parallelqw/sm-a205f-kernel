@@ -305,9 +305,8 @@ err:
 static int mqueue_fill_super(struct super_block *sb, void *data, int silent)
 {
 	struct inode *inode;
-	struct ipc_namespace *ns = sb->s_fs_info;
+	struct ipc_namespace *ns = data;
 
-	sb->s_iflags |= SB_I_NOEXEC | SB_I_NODEV;
 	sb->s_blocksize = PAGE_CACHE_SIZE;
 	sb->s_blocksize_bits = PAGE_CACHE_SHIFT;
 	sb->s_magic = MQUEUE_MAGIC;
@@ -327,14 +326,17 @@ static struct dentry *mqueue_mount(struct file_system_type *fs_type,
 			 int flags, const char *dev_name,
 			 void *data)
 {
-	struct ipc_namespace *ns;
-	if (flags & MS_KERNMOUNT) {
-		ns = data;
-		data = NULL;
-	} else {
-		ns = current->nsproxy->ipc_ns;
+	if (!(flags & MS_KERNMOUNT)) {
+		struct ipc_namespace *ns = current->nsproxy->ipc_ns;
+		/* Don't allow mounting unless the caller has CAP_SYS_ADMIN
+		 * over the ipc namespace.
+		 */
+		if (!ns_capable(ns->user_ns, CAP_SYS_ADMIN))
+			return ERR_PTR(-EPERM);
+
+		data = ns;
 	}
-	return mount_ns(fs_type, flags, data, ns, ns->user_ns, mqueue_fill_super);
+	return mount_ns(fs_type, flags, data, mqueue_fill_super);
 }
 
 static void init_once(void *foo)
@@ -369,9 +371,9 @@ static void mqueue_evict_inode(struct inode *inode)
 {
 	struct mqueue_inode_info *info;
 	struct user_struct *user;
+	unsigned long mq_bytes, mq_treesize;
 	struct ipc_namespace *ipc_ns;
-	struct msg_msg *msg, *nmsg;
-	LIST_HEAD(tmp_msg);
+	struct msg_msg *msg;
 
 	clear_inode(inode);
 
@@ -382,27 +384,20 @@ static void mqueue_evict_inode(struct inode *inode)
 	info = MQUEUE_I(inode);
 	spin_lock(&info->lock);
 	while ((msg = msg_get(info)) != NULL)
-		list_add_tail(&msg->m_list, &tmp_msg);
+		free_msg(msg);
 	kfree(info->node_cache);
 	spin_unlock(&info->lock);
 
-	list_for_each_entry_safe(msg, nmsg, &tmp_msg, m_list) {
-		list_del(&msg->m_list);
-		free_msg(msg);
-	}
+	/* Total amount of bytes accounted for the mqueue */
+	mq_treesize = info->attr.mq_maxmsg * sizeof(struct msg_msg) +
+		min_t(unsigned int, info->attr.mq_maxmsg, MQ_PRIO_MAX) *
+		sizeof(struct posix_msg_tree_node);
+
+	mq_bytes = mq_treesize + (info->attr.mq_maxmsg *
+				  info->attr.mq_msgsize);
 
 	user = info->user;
 	if (user) {
-		unsigned long mq_bytes, mq_treesize;
-
-		/* Total amount of bytes accounted for the mqueue */
-		mq_treesize = info->attr.mq_maxmsg * sizeof(struct msg_msg) +
-			min_t(unsigned int, info->attr.mq_maxmsg, MQ_PRIO_MAX) *
-			sizeof(struct posix_msg_tree_node);
-
-		mq_bytes = mq_treesize + (info->attr.mq_maxmsg *
-					  info->attr.mq_msgsize);
-
 		spin_lock(&mq_lock);
 		user->mq_bytes -= mq_bytes;
 		/*

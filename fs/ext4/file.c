@@ -83,7 +83,7 @@ ext4_unaligned_aio(struct inode *inode, struct iov_iter *from, loff_t pos)
 	struct super_block *sb = inode->i_sb;
 	int blockmask = sb->s_blocksize - 1;
 
-	if (pos >= ALIGN(i_size_read(inode), sb->s_blocksize))
+	if (pos >= i_size_read(inode))
 		return 0;
 
 	if ((pos | iov_iter_alignment(from)) & blockmask)
@@ -589,12 +589,6 @@ static loff_t ext4_seek_data(struct file *file, loff_t offset, loff_t maxsize)
 		mutex_unlock(&inode->i_mutex);
 		return -ENXIO;
 	}
-	/*
-	 * Make sure inline data cannot be created anymore since we are going
-	 * to allocate blocks for DIO. We know the inode does not have any
-	 * inline data now because ext4_dio_supported() checked for that.
-	 */
-	ext4_clear_inode_state(inode, EXT4_STATE_MAY_INLINE_DATA);
 
 	blkbits = inode->i_sb->s_blocksize_bits;
 	start = offset >> blkbits;

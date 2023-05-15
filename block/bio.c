@@ -1233,11 +1233,8 @@ struct bio *bio_copy_user_iov(struct request_queue *q,
 			}
 		}
 
-		if (bio_add_pc_page(q, bio, page, bytes, offset) < bytes) {
-			if (!map_data)
-				__free_page(page);
+		if (bio_add_pc_page(q, bio, page, bytes, offset) < bytes)
 			break;
-		}
 
 		len -= bytes;
 		offset = 0;
@@ -1558,7 +1555,7 @@ struct bio *bio_copy_kern(struct request_queue *q, void *data, unsigned int len,
 		if (bytes > len)
 			bytes = len;
 
-		page = alloc_page(q->bounce_gfp | __GFP_ZERO | gfp_mask);
+		page = alloc_page(q->bounce_gfp | gfp_mask);
 		if (!page)
 			goto cleanup;
 

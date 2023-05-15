@@ -29,9 +29,6 @@
 #include <linux/bug.h>
 #include <linux/of_address.h>
 #include <linux/debugfs.h>
-#ifdef CONFIG_POWERSUSPEND
-#include <linux/powersuspend.h>
-#endif
 #include <linux/pinctrl/consumer.h>
 #include <video/mipi_display.h>
 #include <media/v4l2-subdev.h>
@@ -39,10 +36,6 @@
 #include <soc/samsung/cal-if.h>
 #include <soc/samsung/exynos-pd.h>
 #include <dt-bindings/clock/exynos7885.h>
-
-#ifdef CONFIG_STATE_NOTIFIER
-#include <linux/state_notifier.h>
-#endif
 
 #include "decon.h"
 #include "dsim.h"
@@ -734,32 +727,20 @@ static int decon_blank(int blank_mode, struct fb_info *info)
 	case FB_BLANK_NORMAL:
 		DPU_EVENT_LOG(DPU_EVT_BLANK, &decon->sd, ktime_set(0, 0));
 		ret = decon_disable(decon);
-#ifdef CONFIG_POWERSUSPEND
- 		set_power_suspend_state_panel_hook(POWER_SUSPEND_ACTIVE);
-#endif
 		if (ret) {
 			decon_err("skipped to disable decon\n");
 			goto blank_exit;
 		}
 		atomic_set(&decon->ffu_flag, 2);
-#ifdef CONFIG_STATE_NOTIFIER
-		state_suspend();
-#endif
 		break;
 	case FB_BLANK_UNBLANK:
 		DPU_EVENT_LOG(DPU_EVT_UNBLANK, &decon->sd, ktime_set(0, 0));
 		ret = decon_enable(decon);
-#ifdef CONFIG_POWERSUSPEND
- 		set_power_suspend_state_panel_hook(POWER_SUSPEND_INACTIVE);
-#endif	
 		if (ret) {
 			decon_err("skipped to enable decon\n");
 			goto blank_exit;
 		}
 		atomic_set(&decon->ffu_flag, 2);
-#ifdef CONFIG_STATE_NOTIFIER
-		state_resume();
-#endif
 		break;
 	case FB_BLANK_VSYNC_SUSPEND:
 	case FB_BLANK_HSYNC_SUSPEND:
@@ -2774,7 +2755,7 @@ static int decon_create_update_thread(struct decon_device *decon, char *name)
 	INIT_LIST_HEAD(&decon->up.list);
 	atomic_set(&decon->up.remaining_frame, 0);
 	init_kthread_worker(&decon->up.worker);
-	decon->up.thread = kthread_run_perf_critical(kthread_worker_fn,
+	decon->up.thread = kthread_run(kthread_worker_fn,
 			&decon->up.worker, name);
 	if (IS_ERR(decon->up.thread)) {
 		decon->up.thread = NULL;

@@ -98,7 +98,7 @@ static unsigned int sched_nr_latency = 8;
  * After fork, child runs first. If set to 0 (default) then
  * parent will (try to) run first.
  */
-unsigned int sysctl_sched_child_runs_first __read_mostly = 0;
+unsigned int sysctl_sched_child_runs_first __read_mostly;
 
 /*
  * SCHED_OTHER wake-up granularity.
@@ -1737,10 +1737,6 @@ static u64 numa_get_avg_runtime(struct task_struct *p, u64 *period)
 	if (p->last_task_numa_placement) {
 		delta = runtime - p->last_sum_exec_runtime;
 		*period = now - p->last_task_numa_placement;
-
-		/* Avoid time going backwards, prevent potential divide error: */
-		if (unlikely((s64)*period < 0))
-			*period = 0;
 	} else {
 		delta = p->se.avg.load_sum / p->se.load.weight;
 		*period = LOAD_AVG_MAX;
@@ -2069,22 +2065,12 @@ no_join:
 	return;
 }
 
-/*
- * Get rid of NUMA staticstics associated with a task (either current or dead).
- * If @final is set, the task is dead and has reached refcount zero, so we can
- * safely free all relevant data structures. Otherwise, there might be
- * concurrent reads from places like load balancing and procfs, and we should
- * reset the data back to default state without freeing ->numa_faults.
- */
-void task_numa_free(struct task_struct *p, bool final)
+void task_numa_free(struct task_struct *p)
 {
 	struct numa_group *grp = p->numa_group;
-	unsigned long *numa_faults = p->numa_faults;
+	void *numa_faults = p->numa_faults;
 	unsigned long flags;
 	int i;
-
-	if (!numa_faults)
-		return;
 
 	if (grp) {
 		spin_lock_irqsave(&grp->lock, flags);
@@ -2098,14 +2084,8 @@ void task_numa_free(struct task_struct *p, bool final)
 		put_numa_group(grp);
 	}
 
-	if (final) {
-		p->numa_faults = NULL;
-		kfree(numa_faults);
-	} else {
-		p->total_numa_faults = 0;
-		for (i = 0; i < NR_NUMA_HINT_FAULT_STATS * nr_node_ids; i++)
-			numa_faults[i] = 0;
-	}
+	p->numa_faults = NULL;
+	kfree(numa_faults);
 }
 
 /*
@@ -2340,7 +2320,7 @@ void task_tick_numa(struct rq *rq, struct task_struct *curr)
 	/*
 	 * We don't care about NUMA placement if we don't have memory.
 	 */
-	if ((curr->flags & (PF_EXITING | PF_KTHREAD)) || work->next != work)
+	if (!curr->mm || (curr->flags & PF_EXITING) || work->next != work)
 		return;
 
 	/*
@@ -3380,44 +3360,26 @@ dequeue_entity_load_avg(struct cfs_rq *cfs_rq, struct sched_entity *se)
 		max_t(s64,  cfs_rq->runnable_load_sum - se->avg.load_sum, 0);
 }
 
-#ifndef CONFIG_64BIT
-static inline u64 cfs_rq_last_update_time(struct cfs_rq *cfs_rq)
+/*
+ * Task first catches up with cfs_rq, and then subtract
+ * itself from the cfs_rq (task must be off the queue now).
+ */
+static void remove_entity_load_avg(struct sched_entity *se)
 {
-	u64 last_update_time_copy;
+	struct cfs_rq *cfs_rq = cfs_rq_of(se);
 	u64 last_update_time;
+
+#ifndef CONFIG_64BIT
+	u64 last_update_time_copy;
 
 	do {
 		last_update_time_copy = cfs_rq->load_last_update_time_copy;
 		smp_rmb();
 		last_update_time = cfs_rq->avg.last_update_time;
 	} while (last_update_time != last_update_time_copy);
-
-	return last_update_time;
-}
 #else
-static inline u64 cfs_rq_last_update_time(struct cfs_rq *cfs_rq)
-{
-	return cfs_rq->avg.last_update_time;
-}
+	last_update_time = cfs_rq->avg.last_update_time;
 #endif
-
-/*
- * Task first catches up with cfs_rq, and then subtract
- * itself from the cfs_rq (task must be off the queue now).
- */
-void remove_entity_load_avg(struct sched_entity *se)
-{
-	struct cfs_rq *cfs_rq = cfs_rq_of(se);
-	u64 last_update_time;
-
-	/*
-	 * Newly created task or never used group entity should not be removed
-	 * from its (source) cfs_rq
-	 */
-	if (se->avg.last_update_time == 0)
-		return;
-
-	last_update_time = cfs_rq_last_update_time(cfs_rq);
 
 	__update_load_avg(last_update_time, cpu_of(rq_of(cfs_rq)), &se->avg, 0, 0, NULL);
 	atomic_long_add(se->avg.load_avg, &cfs_rq->removed_load_avg);
@@ -4386,7 +4348,7 @@ static const u64 cfs_bandwidth_slack_period = 5 * NSEC_PER_MSEC;
 static int runtime_refresh_within(struct cfs_bandwidth *cfs_b, u64 min_expire)
 {
 	struct hrtimer *refresh_timer = &cfs_b->period_timer;
-	s64 remaining;
+	u64 remaining;
 
 	/* if the call-back is running a quota refresh is already occurring */
 	if (hrtimer_callback_running(refresh_timer))
@@ -4394,7 +4356,7 @@ static int runtime_refresh_within(struct cfs_bandwidth *cfs_b, u64 min_expire)
 
 	/* is a quota refresh about to occur? */
 	remaining = ktime_to_ns(hrtimer_expires_remaining(refresh_timer));
-	if (remaining < (s64)min_expire)
+	if (remaining < min_expire)
 		return 1;
 
 	return 0;
@@ -4545,51 +4507,18 @@ static enum hrtimer_restart sched_cfs_slack_timer(struct hrtimer *timer)
 	return HRTIMER_NORESTART;
 }
 
-extern const u64 max_cfs_quota_period;
-
 static enum hrtimer_restart sched_cfs_period_timer(struct hrtimer *timer)
 {
 	struct cfs_bandwidth *cfs_b =
 		container_of(timer, struct cfs_bandwidth, period_timer);
 	int overrun;
 	int idle = 0;
-	int count = 0;
 
 	raw_spin_lock(&cfs_b->lock);
 	for (;;) {
 		overrun = hrtimer_forward_now(timer, cfs_b->period);
 		if (!overrun)
 			break;
-
-		if (++count > 3) {
-			u64 new, old = ktime_to_ns(cfs_b->period);
-
-			/*
-			 * Grow period by a factor of 2 to avoid losing precision.
-			 * Precision loss in the quota/period ratio can cause __cfs_schedulable
-			 * to fail.
-			 */
-			new = old * 2;
-			if (new < max_cfs_quota_period) {
-				cfs_b->period = ns_to_ktime(new);
-				cfs_b->quota *= 2;
-
-				pr_warn_ratelimited(
-	"cfs_period_timer[cpu%d]: period too short, scaling up (new cfs_period_us = %lld, cfs_quota_us = %lld)\n",
-					smp_processor_id(),
-					div_u64(new, NSEC_PER_USEC),
-					div_u64(cfs_b->quota, NSEC_PER_USEC));
-			} else {
-				pr_warn_ratelimited(
-	"cfs_period_timer[cpu%d]: period too short, but cannot scale up without losing precision (cfs_period_us = %lld, cfs_quota_us = %lld)\n",
-					smp_processor_id(),
-					div_u64(old, NSEC_PER_USEC),
-					div_u64(cfs_b->quota, NSEC_PER_USEC));
-			}
-
-			/* reset count so we don't come right back in here */
-			count = 0;
-		}
 
 		idle = do_sched_cfs_period_timer(cfs_b, overrun);
 	}
@@ -7994,14 +7923,6 @@ static int detach_tasks(struct lb_env *env)
 			goto next;
 
 		load = task_h_load(p);
-		/*
-		 * Depending of the number of CPUs and tasks and the
-		 * cgroup hierarchy, task_h_load() can return a null
-		 * value. Make sure that env->imbalance decreases
-		 * otherwise detach_tasks() will stop only after
-		 * detaching up to loop_max tasks.
-		 */
-		load = max_t(unsigned long, task_h_load(p), 1);
 
 		if (sched_feat(LB_MIN) && load < 16 && !env->sd->nr_balance_failed)
 			goto next;
@@ -8133,10 +8054,10 @@ static void update_cfs_rq_h_load(struct cfs_rq *cfs_rq)
 	if (cfs_rq->last_h_load_update == now)
 		return;
 
-	WRITE_ONCE(cfs_rq->h_load_next, NULL);
+	cfs_rq->h_load_next = NULL;
 	for_each_sched_entity(se) {
 		cfs_rq = cfs_rq_of(se);
-		WRITE_ONCE(cfs_rq->h_load_next, se);
+		cfs_rq->h_load_next = se;
 		if (cfs_rq->last_h_load_update == now)
 			break;
 	}
@@ -8146,7 +8067,7 @@ static void update_cfs_rq_h_load(struct cfs_rq *cfs_rq)
 		cfs_rq->last_h_load_update = now;
 	}
 
-	while ((se = READ_ONCE(cfs_rq->h_load_next)) != NULL) {
+	while ((se = cfs_rq->h_load_next) != NULL) {
 		load = cfs_rq->h_load;
 		load = div64_ul(load * se->avg.load_avg,
 			cfs_rq_load_avg(cfs_rq) + 1);
@@ -9385,23 +9306,13 @@ out_all_pinned:
 	sd->nr_balance_failed = 0;
 
 out_one_pinned:
-	ld_moved = 0;
-
-	/*
-	 * idle_balance() disregards balance intervals, so we could repeatedly
-	 * reach this code, which would lead to balance_interval skyrocketting
-	 * in a short amount of time. Skip the balance_interval increase logic
-	 * to avoid that.
-	 */
-	if (env.idle == CPU_NEWLY_IDLE)
-		goto out;
-
 	/* tune up the balancing interval */
 	if (((env.flags & LBF_ALL_PINNED) &&
 			sd->balance_interval < MAX_PINNED_INTERVAL) ||
 			(sd->balance_interval < sd->max_interval))
 		sd->balance_interval *= 2;
 
+	ld_moved = 0;
 out:
 	return ld_moved;
 }
@@ -10272,9 +10183,9 @@ static int move_specific_task(struct lb_env *env, struct task_struct *pm)
 	struct task_struct *p, *n;
 
 	list_for_each_entry_safe(p, n, &env->src_rq->cfs_tasks, se.group_node) {
-		if (throttled_lb_pair(task_group(p), env->src_rq->cpu,
+	if (throttled_lb_pair(task_group(p), env->src_rq->cpu,
 				env->dst_cpu))
-			continue;
+		continue;
 
 		if (!hmp_can_migrate_task(p, env))
 			continue;
@@ -10544,10 +10455,10 @@ static void hmp_force_up_migration(int this_cpu)
 	struct task_struct *p;
 
 	if (!spin_trylock(&hmp_force_migration)) {
-		pr_debug("CPU%d FAILED TO GET MIGRATION SPINLOCK\n", this_cpu);
+		trace_printk("CPU%d FAILED TO GET MIGRATION SPINLOCK\n", this_cpu);
 		return;
 	}
-	pr_debug("hmp_force_up_migration spinlock TAKEN cpu=%d\n", this_cpu);
+	trace_printk("hmp_force_up_migration spinlock TAKEN cpu=%d\n", this_cpu);
 
 	for_each_online_cpu(cpu) {
 		BUG_ON((target_cpu > NR_CPUS+1) || (target_cpu < 0));
@@ -10559,7 +10470,7 @@ static void hmp_force_up_migration(int this_cpu)
 			raw_spin_unlock_irqrestore(&target->lock, flags);
 			continue;
 		}
-		pr_debug("examining CPU%d\n", cpu);
+		trace_printk("examining CPU%d\n", cpu);
 		if (!entity_is_task(curr)) {
 			struct cfs_rq *cfs_rq;
 
@@ -10615,7 +10526,7 @@ static void hmp_force_up_migration(int this_cpu)
 
 	spin_unlock(&hmp_force_migration);
 
-	pr_debug("spinlock RELEASE cpu %d\n", this_cpu);
+	trace_printk("spinlock RELEASE cpu %d\n", this_cpu);
 }
 
 /*
@@ -11764,3 +11675,5 @@ static int __init hmp_tbsoftlanding_init(void)
 }
 late_initcall(hmp_tbsoftlanding_init);
 #endif	/* CONFIG_SCHED_HMP_TASK_BASED_SOFTLANDING */
+
+

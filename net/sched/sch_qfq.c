@@ -431,15 +431,14 @@ static int qfq_change_class(struct Qdisc *sch, u32 classid, u32 parentid,
 	} else
 		weight = 1;
 
-	if (tb[TCA_QFQ_LMAX])
+	if (tb[TCA_QFQ_LMAX]) {
 		lmax = nla_get_u32(tb[TCA_QFQ_LMAX]);
-	else
+		if (lmax < QFQ_MIN_LMAX || lmax > (1UL << QFQ_MTU_SHIFT)) {
+			pr_notice("qfq: invalid max length %u\n", lmax);
+			return -EINVAL;
+		}
+	} else
 		lmax = psched_mtu(qdisc_dev(sch));
-
-	if (lmax < QFQ_MIN_LMAX || lmax > (1UL << QFQ_MTU_SHIFT)) {
-		pr_notice("qfq: invalid max length %u\n", lmax);
-		return -EINVAL;
-	}
 
 	inv_w = ONE_FP / weight;
 	weight = ONE_FP / inv_w;
@@ -1151,7 +1150,6 @@ static struct sk_buff *qfq_dequeue(struct Qdisc *sch)
 	if (!skb)
 		return NULL;
 
-	qdisc_qstats_backlog_dec(sch, skb);
 	sch->q.qlen--;
 	qdisc_bstats_update(sch, skb);
 
@@ -1252,7 +1250,6 @@ static int qfq_enqueue(struct sk_buff *skb, struct Qdisc *sch)
 	}
 
 	bstats_update(&cl->bstats, skb);
-	qdisc_qstats_backlog_inc(sch, skb);
 	++sch->q.qlen;
 
 	agg = cl->agg;
@@ -1480,8 +1477,10 @@ static int qfq_init_qdisc(struct Qdisc *sch, struct nlattr *opt)
 	if (err < 0)
 		return err;
 
-	max_classes = min_t(u64, (u64)qdisc_dev(sch)->tx_queue_len + 1,
-			    QFQ_MAX_AGG_CLASSES);
+	if (qdisc_dev(sch)->tx_queue_len + 1 > QFQ_MAX_AGG_CLASSES)
+		max_classes = QFQ_MAX_AGG_CLASSES;
+	else
+		max_classes = qdisc_dev(sch)->tx_queue_len + 1;
 	/* max_cl_shift = floor(log_2(max_classes)) */
 	max_cl_shift = __fls(max_classes);
 	q->max_agg_classes = 1<<max_cl_shift;
@@ -1517,7 +1516,6 @@ static void qfq_reset_qdisc(struct Qdisc *sch)
 			qdisc_reset(cl->qdisc);
 		}
 	}
-	sch->qstats.backlog = 0;
 	sch->q.qlen = 0;
 }
 

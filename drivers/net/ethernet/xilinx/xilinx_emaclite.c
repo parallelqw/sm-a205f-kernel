@@ -539,7 +539,7 @@ static void xemaclite_tx_timeout(struct net_device *dev)
 	xemaclite_enable_interrupts(lp);
 
 	if (lp->deferred_skb) {
-		dev_kfree_skb_irq(lp->deferred_skb);
+		dev_kfree_skb(lp->deferred_skb);
 		lp->deferred_skb = NULL;
 		dev->stats.tx_errors++;
 	}
@@ -1008,10 +1008,9 @@ static int xemaclite_close(struct net_device *dev)
  * deferred and the Tx queue is stopped so that the deferred socket buffer can
  * be transmitted when the Emaclite device is free to transmit data.
  *
- * Return:	NETDEV_TX_OK, always.
+ * Return:	0, always.
  */
-static netdev_tx_t
-xemaclite_send(struct sk_buff *orig_skb, struct net_device *dev)
+static int xemaclite_send(struct sk_buff *orig_skb, struct net_device *dev)
 {
 	struct net_local *lp = netdev_priv(dev);
 	struct sk_buff *new_skb;
@@ -1032,7 +1031,7 @@ xemaclite_send(struct sk_buff *orig_skb, struct net_device *dev)
 		/* Take the time stamp now, since we can't do this in an ISR. */
 		skb_tx_timestamp(new_skb);
 		spin_unlock_irqrestore(&lp->reset_lock, flags);
-		return NETDEV_TX_OK;
+		return 0;
 	}
 	spin_unlock_irqrestore(&lp->reset_lock, flags);
 
@@ -1041,7 +1040,7 @@ xemaclite_send(struct sk_buff *orig_skb, struct net_device *dev)
 	dev->stats.tx_bytes += len;
 	dev_consume_skb_any(new_skb);
 
-	return NETDEV_TX_OK;
+	return 0;
 }
 
 /**
@@ -1176,16 +1175,15 @@ static int xemaclite_of_probe(struct platform_device *ofdev)
 	if (rc) {
 		dev_err(dev,
 			"Cannot register network device, aborting\n");
-		goto put_node;
+		goto error;
 	}
 
 	dev_info(dev,
-		 "Xilinx EmacLite at 0x%08X mapped to 0x%p, irq=%d\n",
-		 (unsigned int __force)ndev->mem_start, lp->base_addr, ndev->irq);
+		 "Xilinx EmacLite at 0x%08X mapped to 0x%08X, irq=%d\n",
+		 (unsigned int __force)ndev->mem_start,
+		 (unsigned int __force)lp->base_addr, ndev->irq);
 	return 0;
 
-put_node:
-	of_node_put(lp->phy_node);
 error:
 	xemaclite_remove_ndev(ndev);
 	return rc;

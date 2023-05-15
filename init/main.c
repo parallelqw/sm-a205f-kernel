@@ -681,7 +681,7 @@ asmlinkage __visible void __init start_kernel(void)
 	debug_objects_early_init();
 
 	/*
-	 * Set up the initial canary ASAP:
+	 * Set up the the initial canary ASAP:
 	 */
 	boot_init_stack_canary();
 
@@ -690,10 +690,10 @@ asmlinkage __visible void __init start_kernel(void)
 	local_irq_disable();
 	early_boot_irqs_disabled = true;
 
-	/*
-	 * Interrupts are still disabled. Do necessary setups, then
-	 * enable them.
-	 */
+/*
+ * Interrupts are still disabled. Do necessary setups, then
+ * enable them
+ */
 	boot_cpu_init();
 	page_address_init();
 	pr_notice("%s", linux_banner);
@@ -710,9 +710,6 @@ asmlinkage __visible void __init start_kernel(void)
 #if !defined(CONFIG_SAMSUNG_PRODUCT_SHIP)
 	pr_notice("Kernel command line: %s\n", boot_command_line);
 #endif
-
-	/* parameters may set static keys */
-	jump_label_init();
 	parse_early_param();
 	after_dashes = parse_args("Booting kernel",
 				  static_command_line, __start___param,
@@ -722,6 +719,8 @@ asmlinkage __visible void __init start_kernel(void)
 	if (!IS_ERR_OR_NULL(after_dashes))
 		parse_args("Setting init args", after_dashes, NULL, 0, -1, -1,
 			   NULL, set_init_arg);
+
+	jump_label_init();
 
 	/*
 	 * These use large bootmem allocations and must precede
@@ -870,8 +869,6 @@ asmlinkage __visible void __init start_kernel(void)
 
 	/* Do the rest non-__init'ed, we're now alive */
 	rest_init();
-
-	prevent_tail_call_optimization();
 }
 
 /* Call all constructor functions linked into the kernel. */
@@ -1239,7 +1236,7 @@ static noinline void __init kernel_init_freeable(void)
 	 */
 	set_cpus_allowed_ptr(current, cpu_all_mask);
 
-	cad_pid = get_pid(task_pid(current));
+	cad_pid = task_pid(current);
 
 	smp_prepare_cpus(setup_max_cpus);
 

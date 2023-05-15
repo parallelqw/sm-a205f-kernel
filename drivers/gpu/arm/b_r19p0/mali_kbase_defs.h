@@ -59,7 +59,7 @@
 #include "mali_kbase_fence_defs.h"
 #endif
 
-#if 0
+#ifdef CONFIG_DEBUG_FS
 #include <linux/debugfs.h>
 #endif				/* CONFIG_DEBUG_FS */
 
@@ -171,11 +171,6 @@
 #define KBASE_TRACE_SIZE (1 << KBASE_TRACE_SIZE_LOG2)
 #define KBASE_TRACE_MASK ((1 << KBASE_TRACE_SIZE_LOG2)-1)
 
-/**
- * Maximum number of GPU memory region zones
- */
-#define KBASE_REG_ZONE_MAX 4ul
-
 #include "mali_kbase_js_defs.h"
 #include "mali_kbase_hwaccess_defs.h"
 
@@ -266,7 +261,7 @@ struct kbase_as;
 struct kbase_mmu_setup;
 struct kbase_ipa_model_vinstr_data;
 
-#if 0
+#ifdef CONFIG_DEBUG_FS
 /**
  * struct base_job_fault_event - keeps track of the atom which faulted or which
  *                               completed after the faulty atom but before the
@@ -742,7 +737,7 @@ struct kbase_jd_atom {
 
 	u32 flush_id;
 
-#if 0
+#ifdef CONFIG_DEBUG_FS
 	struct base_job_fault_event fault_event;
 #endif
 
@@ -1683,7 +1678,7 @@ struct kbase_device {
 
 	bool job_fault_debug;
 
-#if 0
+#ifdef CONFIG_DEBUG_FS
 	struct dentry *mali_debugfs_directory;
 	struct dentry *debugfs_ctx_directory;
 
@@ -1710,7 +1705,7 @@ struct kbase_device {
 
 	atomic_t ctx_num;
 
-#if 0
+#ifdef CONFIG_DEBUG_FS
 	struct kbase_io_history io_history;
 #endif /* CONFIG_DEBUG_FS */
 
@@ -1937,21 +1932,6 @@ struct kbase_sub_alloc {
 };
 
 /**
- * struct kbase_reg_zone - Information about GPU memory region zones
- * @base_pfn: Page Frame Number in GPU virtual address space for the start of
- *            the Zone
- * @va_size_pages: Size of the Zone in pages
- *
- * Track information about a zone KBASE_REG_ZONE() and related macros.
- * In future, this could also store the &rb_root that are currently in
- * &kbase_context
- */
-struct kbase_reg_zone {
-	u64 base_pfn;
-	u64 va_size_pages;
-};
-
-/**
  * struct kbase_context - Kernel base context
  *
  * @filp:                 Pointer to the struct file corresponding to device file
@@ -2001,7 +1981,6 @@ struct kbase_reg_zone {
  * @reg_rbtree_exec:      RB tree of the memory regions allocated from the EXEC_VA
  *                        zone of the GPU virtual address space. Used for GPU-executable
  *                        allocations which don't need the SAME_VA property.
- * @reg_zone:             Zone information for the reg_rbtree_<...> members.
  * @cookies:              Bitmask containing of BITS_PER_LONG bits, used mainly for
  *                        SAME_VA allocations to defer the reservation of memory region
  *                        (from the GPU virtual address space) from base_mem_alloc
@@ -2076,6 +2055,9 @@ struct kbase_reg_zone {
  *                        created the context. Used for accounting the physical
  *                        pages used for GPU allocations, done for the context,
  *                        to the memory consumed by the process.
+ * @same_va_end:          End address of the SAME_VA zone (in 4KB page units)
+ * @exec_va_start:        Start address of the EXEC_VA zone (in 4KB page units)
+ *                        or U64_MAX if the EXEC_VA zone is uninitialized.
  * @gpu_va_end:           End address of the GPU va space (in 4KB page units)
  * @jit_va:               Indicates if a JIT_VA zone has been created.
  * @mem_profile_data:     Buffer containing the profiling information provided by
@@ -2207,7 +2189,6 @@ struct kbase_context {
 	struct rb_root reg_rbtree_same;
 	struct rb_root reg_rbtree_custom;
 	struct rb_root reg_rbtree_exec;
-	struct kbase_reg_zone reg_zone[KBASE_REG_ZONE_MAX];
 
 
 	unsigned long    cookies;
@@ -2242,10 +2223,12 @@ struct kbase_context {
 
 	spinlock_t         mm_update_lock;
 	struct mm_struct __rcu *process_mm;
+	u64 same_va_end;
+	u64 exec_va_start;
 	u64 gpu_va_end;
 	bool jit_va;
 
-#if 0
+#ifdef CONFIG_DEBUG_FS
 	char *mem_profile_data;
 	size_t mem_profile_size;
 	struct mutex mem_profile_lock;

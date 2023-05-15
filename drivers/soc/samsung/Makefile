@@ -7,7 +7,7 @@ obj-$(CONFIG_ARCH_EXYNOS)	+= exynos-pm.o
 
 obj-$(CONFIG_ARCH_EXYNOS)	+= exynos-smc.o
 obj-$(CONFIG_ARCH_EXYNOS)	+= exynos-el3_mon.o
-obj-$(CONFIG_EXYNOS_HOTPLUG)	+= exynos-cpu_hotplug.o
+obj-$(CONFIG_ARCH_EXYNOS)	+= exynos-cpu_hotplug.o
 obj-$(CONFIG_ARCH_EXYNOS)	+= exynos-cpumap.o
 obj-$(CONFIG_ARCH_EXYNOS)	+= core_reg.o
 
@@ -57,6 +57,3 @@ obj-$(CONFIG_EXYNOS_HDCP2)	+= exynos-hdcp/
 
 #incell
 obj-$(CONFIG_SEC_INCELL) += sec_incell.o
-
-# state notifier
-obj-$(CONFIG_STATE_NOTIFIER)	+= state_notifier.o

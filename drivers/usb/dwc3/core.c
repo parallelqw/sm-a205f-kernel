@@ -65,7 +65,7 @@ int dwc3_set_vbus_current(int state)
 	}
 
 	pval.intval = state; 
-	power_supply_set_property(psy, (enum power_supply_property) POWER_SUPPLY_EXT_PROP_USB_CONFIGURE, &pval);
+	power_supply_set_property(psy, POWER_SUPPLY_EXT_PROP_USB_CONFIGURE, &pval);
 
 	return 0;
 }
@@ -1102,9 +1102,6 @@ static void dwc3_core_exit_mode(struct dwc3 *dwc)
 		/* do nothing */
 		break;
 	}
-
-	/* de-assert DRVVBUS for HOST and OTG mode */
-	dwc3_set_mode(dwc, DWC3_GCTL_PRTCAP_DEVICE);
 }
 
 static int dwc3_get_option(struct dwc3 *dwc)
@@ -1212,7 +1209,7 @@ static int dwc3_probe(struct platform_device *pdev)
 	dwc->regs_size	= resource_size(res);
 
 	/* default to highest possible threshold */
-	lpm_nyet_threshold = 0xf;
+	lpm_nyet_threshold = 0xff;
 
 	/* default to -3.5dB de-emphasis */
 	tx_de_emphasis = 1;

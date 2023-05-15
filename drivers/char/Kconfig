@@ -24,15 +24,6 @@ config DEVKMEM
 	  kind of kernel debugging operations.
 	  When in doubt, say "N".
 
-config FRANDOM
-	bool "/dev/frandom device support"
-	default y
-	help
-	  Say Y here if you want to support the /dev/frandom device. Frandom
-	  is a Linux kernel random number generator, which is 10-50 times faster 
-	  than what you get from Linux' built-in /dev/urandom.
-	  When in doubt, say "N"
-
 config SGI_SNSC
 	bool "SGI Altix system controller communication support"
 	depends on (IA64_SGI_SN2 || IA64_GENERIC)
@@ -398,7 +389,7 @@ config XILINX_HWICAP
 
 config R3964
 	tristate "Siemens R3964 line discipline"
-	depends on TTY && BROKEN
+	depends on TTY
 	---help---
 	  This driver allows synchronous communication with devices using the
 	  Siemens R3964 packet protocol. Unless you are dealing with special
@@ -613,8 +604,6 @@ config TILE_SROM
 	  how to partition a single ROM for multiple purposes.
 
 source "drivers/char/xillybus/Kconfig"
-
-source "drivers/char/srandom/Kconfig"
 
 endmenu
 

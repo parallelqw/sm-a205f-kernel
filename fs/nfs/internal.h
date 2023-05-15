@@ -182,7 +182,6 @@ extern struct nfs_server *nfs_clone_server(struct nfs_server *,
 					   struct nfs_fh *,
 					   struct nfs_fattr *,
 					   rpc_authflavor_t);
-extern bool nfs_client_init_is_complete(const struct nfs_client *clp);
 extern int nfs_wait_client_init_complete(const struct nfs_client *clp);
 extern void nfs_mark_client_ready(struct nfs_client *clp, int state);
 extern struct nfs_client *nfs4_set_ds_client(struct nfs_client* mds_clp,
@@ -535,14 +534,12 @@ extern int nfs41_walk_client_list(struct nfs_client *clp,
 
 static inline struct inode *nfs_igrab_and_active(struct inode *inode)
 {
-	struct super_block *sb = inode->i_sb;
-
-	if (sb && nfs_sb_active(sb)) {
-		if (igrab(inode))
-			return inode;
-		nfs_sb_deactive(sb);
+	inode = igrab(inode);
+	if (inode != NULL && !nfs_sb_active(inode->i_sb)) {
+		iput(inode);
+		inode = NULL;
 	}
-	return NULL;
+	return inode;
 }
 
 static inline void nfs_iput_and_deactive(struct inode *inode)

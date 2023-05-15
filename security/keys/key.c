@@ -290,8 +290,6 @@ struct key *key_alloc(struct key_type *type, const char *desc,
 	key->datalen = type->def_datalen;
 	key->uid = uid;
 	key->gid = gid;
-	if (flags & KEY_ALLOC_BUILT_IN)
-		key->flags |= 1 << KEY_FLAG_BUILTIN;
 	key->perm = perm;
 
 	if (!(flags & KEY_ALLOC_NOT_IN_QUOTA))
@@ -378,7 +376,7 @@ int key_payload_reserve(struct key *key, size_t datalen)
 		spin_lock(&key->user->lock);
 
 		if (delta > 0 &&
-		    (key->user->qnbytes + delta > maxbytes ||
+		    (key->user->qnbytes + delta >= maxbytes ||
 		     key->user->qnbytes + delta < key->user->qnbytes)) {
 			ret = -EDQUOT;
 		}

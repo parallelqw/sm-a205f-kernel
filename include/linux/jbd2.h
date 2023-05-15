@@ -47,7 +47,7 @@
 /*
  * The default maximum commit age, in seconds.
  */
-#define JBD2_DEFAULT_MAX_COMMIT_AGE 120
+#define JBD2_DEFAULT_MAX_COMMIT_AGE 5
 
 #ifdef CONFIG_JBD2_DEBUG
 /*
@@ -1444,7 +1444,7 @@ static inline int jbd2_space_needed(journal_t *journal)
 static inline unsigned long jbd2_log_space_left(journal_t *journal)
 {
 	/* Allow for rounding errors */
-	long free = journal->j_free - 32;
+	unsigned long free = journal->j_free - 32;
 
 	if (journal->j_committing_transaction) {
 		unsigned long committing = atomic_read(&journal->
@@ -1453,7 +1453,7 @@ static inline unsigned long jbd2_log_space_left(journal_t *journal)
 		/* Transaction + control blocks */
 		free -= committing + (committing >> JBD2_CONTROL_BLOCKS_SHIFT);
 	}
-	return max_t(long, free, 0);
+	return free;
 }
 
 /*

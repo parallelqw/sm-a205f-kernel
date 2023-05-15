@@ -368,7 +368,7 @@ static void update_cpu_power(unsigned int cpu)
 
 	set_power_scale(cpu, cpu_capacity(cpu) / middle_capacity);
 
-	pr_debug("CPU%u: update cpu_power %lu\n",
+	pr_info("CPU%u: update cpu_power %lu\n",
 		cpu, arch_scale_freq_power(NULL, cpu));
 }
 
@@ -440,7 +440,7 @@ void __init arch_get_fast_and_slow_cpus(struct cpumask *fast,
 		 * Use the config options if they are given. This helps testing
 		 * HMP scheduling on systems without a big.LITTLE architecture.
 		 */
-		if (strlen(CONFIG_HMP_FAST_CPU_MASK) & strlen(CONFIG_HMP_SLOW_CPU_MASK)) {
+		if (strlen(CONFIG_HMP_FAST_CPU_MASK) && strlen(CONFIG_HMP_SLOW_CPU_MASK)) {
 			if (cpulist_parse(CONFIG_HMP_FAST_CPU_MASK, fast))
 				WARN(1, "Failed to parse HMP fast cpu mask!\n");
 			if (cpulist_parse(CONFIG_HMP_SLOW_CPU_MASK, slow))
@@ -632,7 +632,7 @@ void store_cpu_topology(unsigned int cpuid)
 	update_siblings_masks(cpuid);
 	update_cpu_power(cpuid);
 
-	pr_debug("CPU%u: thread %d, cpu %d, cluster %d, mpidr %x\n",
+	pr_info("CPU%u: thread %d, cpu %d, cluster %d, mpidr %x\n",
 		cpuid, cpu_topology[cpuid].thread_id,
 		cpu_topology[cpuid].core_id,
 		cpu_topology[cpuid].cluster_id, mpidr);

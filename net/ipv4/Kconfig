@@ -298,7 +298,6 @@ config SYN_COOKIES
 
 config NET_IPVTI
 	tristate "Virtual (secure) IP: tunneling"
-	depends on IPV6 || IPV6=n
 	select INET_TUNNEL
 	select NET_IP_TUNNEL
 	depends on INET_XFRM_MODE_TUNNEL
@@ -450,13 +449,6 @@ config INET_DIAG_DESTROY
 	  this way interrupts any blocking read/write/connect operations on
 	  the socket and causes future socket calls to behave as if the socket
 	  had been disconnected.
-	  If unsure, say N.
-
-config LARGE_TCP_INITIAL_BUFFER
-	bool "TCP: lock the initial window size to 64K"
-	default y
-	---help---
-	  Lock the initial TCP window size to 64K.
 	  If unsure, say N.
 
 menuconfig TCP_CONG_ADVANCED

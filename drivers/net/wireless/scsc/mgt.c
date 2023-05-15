@@ -1,6 +1,6 @@
 /******************************************************************************
  *
- * Copyright (c) 2012 - 2021 Samsung Electronics Co., Ltd. All rights reserved
+ * Copyright (c) 2012 - 2020 Samsung Electronics Co., Ltd. All rights reserved
  *
  *****************************************************************************/
 
@@ -48,8 +48,6 @@
 #define SLSI_MIB_REG_RULES_MAX (50)
 #define SLSI_MIB_MAX_CLIENT (10)
 #define SLSI_REG_PARAM_START_INDEX (1)
-
-#define SLSI_PSID_UNIFI_IGMP_OFFLOAD_ACTIVATED 2489
 
 static char *mib_file_t = "wlan_t.hcf";
 module_param(mib_file_t, charp, S_IRUGO | S_IWUSR);
@@ -316,21 +314,29 @@ mac_default:
 
 static void write_wifi_version_info_file(struct slsi_dev *sdev)
 {
-#ifdef CONFIG_SCSC_WLBTD
+	struct file *fp = NULL;
+
 #if defined(SCSC_SEP_VERSION) && (SCSC_SEP_VERSION >= 9)
 	char *filepath = "/data/vendor/conn/.wifiver.info";
 #else
 	char *filepath = "/data/misc/conn/.wifiver.info";
 #endif
-#endif
 	char buf[256];
 	char build_id_fw[128];
 	char build_id_drv[64];
 
-#ifndef SLSI_TEST_DEV
+	fp = filp_open(filepath, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+
+	if (IS_ERR(fp)) {
+		SLSI_WARN(sdev, "version file wasn't found\n");
+		return;
+	} else if (!fp) {
+		SLSI_WARN(sdev, "%s doesn't exist.\n", filepath);
+		return;
+	}
+
 	mxman_get_fw_version(build_id_fw, 128);
 	mxman_get_driver_version(build_id_drv, 64);
-#endif
 
 	/* WARNING:
 	 * Please do not change the format of the following string
@@ -368,14 +374,18 @@ static void write_wifi_version_info_file(struct slsi_dev *sdev)
 #ifdef SCSC_SEP_VERSION
 #ifdef CONFIG_SCSC_WLBTD
 	wlbtd_write_file(filepath, buf);
+#else
+	kernel_write(fp, buf, strlen(buf), 0);
 #endif
+
+	if (fp)
+		filp_close(fp, NULL);
 
 	SLSI_INFO(sdev, "Succeed to write firmware/host information to .wifiver.info\n");
 #else
 	SLSI_UNUSED_PARAMETER(filepath);
 #endif
 }
-
 
 static void write_m_test_chip_version_file(struct slsi_dev *sdev)
 {
@@ -655,6 +665,8 @@ int slsi_start(struct slsi_dev *sdev)
 		offset += snprintf(buf + offset, sizeof(buf), "HalFn_getValidChannels=yes\n");
 #ifdef CONFIG_SCSC_WLBTD
 		wlbtd_write_file(filepath, buf);
+#else
+		kernel_write(fp, buf, strlen(buf), 0);
 #endif
 
 		if (fp)
@@ -1418,14 +1430,13 @@ static int slsi_mib_initial_get(struct slsi_dev *sdev)
 #endif
 							       { SLSI_PSID_UNIFI_SOFT_AP40_MHZ_ON24G, {0, 0} },
 							       { SLSI_PSID_UNIFI_EXTENDED_CAPABILITIES, {0, 0} },
-							       { SLSI_PSID_UNIFI_IGMP_OFFLOAD_ACTIVATED, {0, 0} },
 							      };/*Check the mibrsp.dataLength when a new mib is added*/
 
 	r = slsi_mib_encode_get_list(&mibreq, sizeof(get_values) / sizeof(struct slsi_mib_get_entry), get_values);
 	if (r != SLSI_MIB_STATUS_SUCCESS)
 		return -ENOMEM;
 
-	mibrsp.dataLength = 214;
+	mibrsp.dataLength = 204;
 	mibrsp.data = kmalloc(mibrsp.dataLength, GFP_KERNEL);
 	if (!mibrsp.data) {
 		kfree(mibreq.data);
@@ -1586,6 +1597,7 @@ static int slsi_mib_initial_get(struct slsi_dev *sdev)
 			SLSI_WARN(sdev, "Error reading 5Ghz Allowed Channels\n");
 		}
 #endif
+
 #ifdef CONFIG_SCSC_WLAN_AP_INFO_FILE
 		if (values[++mib_index].type != SLSI_MIB_TYPE_NONE) /* Dual band concurrency */
 			sdev->dualband_concurrency = values[mib_index].u.boolValue;
@@ -1632,13 +1644,7 @@ static int slsi_mib_initial_get(struct slsi_dev *sdev)
 					sdev->fw_ext_cap_ie_len);
 		} else
 			SLSI_DBG2(sdev, SLSI_MLME, "Failed to read Extended capabilities\n");
-		/* IGMP Offloading Support*/
-        	if (values[++mib_index].type != SLSI_MIB_TYPE_NONE) {
-                	sdev->igmp_offload_activated = values[mib_index].u.boolValue;
-	                SLSI_INFO(sdev, "IGMP offloading is enabled:%d\n", sdev->igmp_offload_activated);
-        	} else {
-                	SLSI_INFO(sdev, "IGMP offloading is disabled!\n");
-	        }
+
 		kfree(values);
 	}
 	kfree(mibrsp.data);
@@ -4935,17 +4941,17 @@ void slsi_roam_channel_cache_add(struct slsi_dev *sdev, struct net_device *dev, 
 		chan = ieee80211_frequency_to_channel(freq);
 
 	if (chan) {
-		enum nl80211_band band = NL80211_BAND_2GHZ;
+		enum ieee80211_band band = IEEE80211_BAND_2GHZ;
 
 		if (chan > 14)
-			band = NL80211_BAND_5GHZ;
+			band = IEEE80211_BAND_5GHZ;
 
 #ifdef CONFIG_SCSC_WLAN_DEBUG
 		if (freq != (u32)ieee80211_channel_to_frequency(chan, band)) {
-			if (band == NL80211_BAND_5GHZ && freq < 3000)
+			if (band == IEEE80211_BAND_5GHZ && freq < 3000)
 				SLSI_NET_DBG2(dev, SLSI_MLME, "Off Band Result : mlme_scan_ind(freq:%d) != DS(freq:%d)\n", freq, ieee80211_channel_to_frequency(chan, band));
 
-			if (band == NL80211_BAND_2GHZ && freq > 3000)
+			if (band == IEEE80211_BAND_2GHZ && freq > 3000)
 				SLSI_NET_DBG2(dev, SLSI_MLME, "Off Band Result : mlme_scan_ind(freq:%d) != DS(freq:%d)\n", freq, ieee80211_channel_to_frequency(chan, band));
 		}
 #endif
@@ -5188,7 +5194,7 @@ static void slsi_reg_mib_to_regd(struct slsi_mib_data *mib, struct slsi_802_11d_
 
 void slsi_reset_channel_flags(struct slsi_dev *sdev)
 {
-	enum nl80211_band band;
+	enum ieee80211_band band;
 	struct ieee80211_channel *chan;
 	int i;
 	struct wiphy *wiphy = sdev->wiphy;
@@ -5196,7 +5202,7 @@ void slsi_reset_channel_flags(struct slsi_dev *sdev)
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 9, 0))
 	for (band = 0; band < NUM_NL80211_BANDS; band++) {
 #else
-	for (band = 0; band < NUM_NL80211_BANDS; band++) {
+	for (band = 0; band < IEEE80211_NUM_BANDS; band++) {
 #endif
 		if (!wiphy->bands[band])
 			continue;

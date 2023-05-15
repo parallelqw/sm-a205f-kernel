@@ -45,33 +45,9 @@ static unsigned int ect_find_constraint_freq(struct ect_minlock_domain *ect_doma
 					unsigned int freq)
 {
 	unsigned int i;
-	int bm_index;
 
-	for (i = 0; i < ect_domain->num_of_level; i++) {
-		unsigned int freq = ect_domain->level[i].main_frequencies;
-
-		// MIF frequencies
-		int arr[5] = {2093000,2002000,1794000,1352000,1014000};
-
-		for (bm_index = 0; bm_index <= 4; bm_index++) {
-
-			if(freq == arr[0] || freq == arr[1])
-				ect_domain->level[i].sub_frequencies=533000;
-			if(freq == arr[2])
-				ect_domain->level[i].sub_frequencies=333000;
-			if(freq == arr[3])
-				ect_domain->level[i].sub_frequencies=267000;
-			if(freq == arr[4])
-				ect_domain->level[i].sub_frequencies=133000;
-		}
-
-		if (ect_domain->level[i].main_frequencies == freq)
-			break;
-
-		pr_info("  main_lv : %7d kHz, sub_lv : %7d kHz, exynos7885_bus_mif\n",
-					ect_domain->level[i].main_frequencies,
-					ect_domain->level[i].sub_frequencies);
-	}
+	for (i =0; i < ect_domain->num_of_level; i++)
+		if (ect_domain->level[i].main_frequencies == freq) break;
 
 	return ect_domain->level[i].sub_frequencies;
 }
@@ -271,7 +247,7 @@ static int exynos7885_devfreq_mif_init_freq_table(struct exynos_devfreq_data *da
 		return -EINVAL;
 	}
 
-	max_freq = 2093000;
+	max_freq = (u32)cal_dfs_get_max_freq(data->dfs_id);
 	if (!max_freq) {
 		dev_err(data->dev, "failed get max frequency\n");
 		return -EINVAL;
@@ -291,7 +267,7 @@ static int exynos7885_devfreq_mif_init_freq_table(struct exynos_devfreq_data *da
 			return PTR_ERR(target_opp);
 		}
 
-		data->max_freq = 2093000;
+		data->max_freq = dev_pm_opp_get_freq(target_opp);
 		rcu_read_unlock();
 	}
 

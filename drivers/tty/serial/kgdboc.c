@@ -148,10 +148,8 @@ static int configure_kgdboc(void)
 	char *cptr = config;
 	struct console *cons;
 
-	if (!strlen(config) || isspace(config[0])) {
-		err = 0;
+	if (!strlen(config) || isspace(config[0]))
 		goto noconfig;
-	}
 
 	kgdboc_io_ops.is_console = 0;
 	kgdb_tty_driver = NULL;
@@ -304,16 +302,16 @@ static int kgdboc_option_setup(char *opt)
 {
 	if (!opt) {
 		pr_err("config string not provided\n");
-		return 1;
+		return -EINVAL;
 	}
 
 	if (strlen(opt) >= MAX_CONFIG_LEN) {
 		pr_err("config string too long\n");
-		return 1;
+		return -ENOSPC;
 	}
 	strcpy(config, opt);
 
-	return 1;
+	return 0;
 }
 
 __setup("kgdboc=", kgdboc_option_setup);
