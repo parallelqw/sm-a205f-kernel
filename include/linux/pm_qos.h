@@ -85,7 +85,7 @@ enum pm_qos_flags_status {
 #define PM_QOS_LATENCY_TOLERANCE_NO_CONSTRAINT	(-1)
 #define PM_QOS_LATENCY_ANY			((s32)(~(__u32)0 >> 1))
 #define PM_QOS_CPU_ONLINE_MIN_DEFAULT_VALUE	1
-#define PM_QOS_CPU_ONLINE_MAX_DEFAULT_VALUE	NR_CPUS
+#define PM_QOS_CPU_ONLINE_MAX_DEFAULT_VALUE	8
 #define PM_QOS_CLUSTER1_FREQ_MIN_DEFAULT_VALUE	0
 #define PM_QOS_CLUSTER1_FREQ_MAX_DEFAULT_VALUE	INT_MAX
 #define PM_QOS_CLUSTER0_FREQ_MIN_DEFAULT_VALUE	0
@@ -99,6 +99,7 @@ enum pm_qos_flags_status {
 } while(0)
 
 struct pm_qos_request {
+	struct cpumask cpus_affine;
 	struct plist_node node;
 	int pm_qos_class;
 	struct delayed_work work; /* for pm_qos_update_request_timeout */
@@ -142,6 +143,7 @@ enum pm_qos_type {
 struct pm_qos_constraints {
 	struct plist_head list;
 	s32 target_value;	/* Do not change to 64 bit */
+	s32 target_per_cpu[NR_CPUS];
 	s32 default_value;
 	s32 no_constraint_value;
 	enum pm_qos_type type;
@@ -194,6 +196,7 @@ void pm_qos_remove_request(struct pm_qos_request *req);
 
 int pm_qos_read_req_value(int pm_qos_class, struct pm_qos_request *req);
 int pm_qos_request(int pm_qos_class);
+int pm_qos_request_for_cpu(int pm_qos_class, int cpu);
 int pm_qos_add_notifier(int pm_qos_class, struct notifier_block *notifier);
 int pm_qos_remove_notifier(int pm_qos_class, struct notifier_block *notifier);
 int pm_qos_request_active(struct pm_qos_request *req);
@@ -212,8 +215,6 @@ int dev_pm_qos_add_notifier(struct device *dev,
 			    struct notifier_block *notifier);
 int dev_pm_qos_remove_notifier(struct device *dev,
 			       struct notifier_block *notifier);
-int dev_pm_qos_add_global_notifier(struct notifier_block *notifier);
-int dev_pm_qos_remove_global_notifier(struct notifier_block *notifier);
 void dev_pm_qos_constraints_init(struct device *dev);
 void dev_pm_qos_constraints_destroy(struct device *dev);
 int dev_pm_qos_add_ancestor_request(struct device *dev,
@@ -264,12 +265,6 @@ static inline int dev_pm_qos_add_notifier(struct device *dev,
 			{ return 0; }
 static inline int dev_pm_qos_remove_notifier(struct device *dev,
 					     struct notifier_block *notifier)
-			{ return 0; }
-static inline int dev_pm_qos_add_global_notifier(
-					struct notifier_block *notifier)
-			{ return 0; }
-static inline int dev_pm_qos_remove_global_notifier(
-					struct notifier_block *notifier)
 			{ return 0; }
 static inline void dev_pm_qos_constraints_init(struct device *dev)
 {

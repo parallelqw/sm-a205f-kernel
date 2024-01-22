@@ -63,6 +63,7 @@
 #ifdef CONFIG_MALI_ARBITER_SUPPORT
 #include "arbiter/mali_kbase_arbiter_pm.h"
 #endif
+#include <linux/pm_qos.h>
 
 #include "mali_kbase_cs_experimental.h"
 
@@ -72,6 +73,7 @@
 #ifdef CONFIG_MALI_CINSTR_GWT
 #include "mali_kbase_gwt.h"
 #endif
+#include "mali_kbase_pm.h"
 #include "mali_kbase_pm_internal.h"
 
 #include <linux/module.h>
@@ -101,6 +103,7 @@
 #include <linux/delay.h>
 #include <linux/log2.h>
 
+#include <linux/pm_qos.h>
 #include <mali_kbase_config.h>
 
 
@@ -214,6 +217,37 @@ bool mali_kbase_supports_cap(unsigned long api_version, mali_kbase_cap cap)
 	supported = (api_version >= required_ver);
 
 	return supported;
+}
+
+struct task_struct *kbase_create_realtime_thread(struct kbase_device *kbdev,
+	int (*threadfn)(void *data), void *data, const char namefmt[])
+{
+	unsigned int i;
+
+	cpumask_t mask = { CPU_BITS_NONE };
+
+	static const struct sched_param param = {
+		.sched_priority = KBASE_RT_THREAD_PRIO,
+	};
+
+	struct task_struct *ret = kthread_create(kthread_worker_fn, data, namefmt);
+
+	if (!IS_ERR(ret)) {
+		for (i = KBASE_RT_THREAD_CPUMASK_MIN; i <= KBASE_RT_THREAD_CPUMASK_MAX ; i++)
+			cpumask_set_cpu(i, &mask);
+
+		kthread_bind_mask(ret, &mask);
+
+		wake_up_process(ret);
+
+		if (sched_setscheduler(ret, SCHED_FIFO, &param))
+			dev_warn(kbdev->dev, "%s not set to RT prio", namefmt);
+		else
+			dev_dbg(kbdev->dev, "%s set to RT prio: %i",
+				namefmt, param.sched_priority);
+	}
+
+	return ret;
 }
 
 /**
@@ -404,6 +438,8 @@ static void kbase_file_delete(struct kbase_file *const kfile)
 
 	kfree(kfile);
 }
+
+bool gpu_always_on = false;
 
 static int kbase_api_handshake(struct kbase_file *kfile,
 			       struct kbase_ioctl_version_check *version)
@@ -800,6 +836,13 @@ static int kbase_api_set_flags(struct kbase_file *kfile,
 	}
 
 	return err;
+}
+
+static int kbase_api_apc_request(struct kbase_file *kfile,
+		struct kbase_ioctl_apc_request *apc)
+{
+	kbase_pm_apc_request(kfile->kbdev, apc->dur_usec);
+	return 0;
 }
 
 static int kbase_api_job_submit(struct kbase_context *kctx,
@@ -1483,7 +1526,7 @@ static int kbase_api_tlstream_stats(struct kbase_context *kctx,
 		return ret;                                            \
 	} while (0)
 
-static long kbase_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
+static long __kbase_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
 	struct kbase_file *const kfile = filp->private_data;
 	struct kbase_context *kctx = NULL;
@@ -1503,6 +1546,13 @@ static long kbase_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		KBASE_HANDLE_IOCTL_IN(KBASE_IOCTL_SET_FLAGS,
 				kbase_api_set_flags,
 				struct kbase_ioctl_set_flags,
+				kfile);
+		break;
+
+	case KBASE_IOCTL_APC_REQUEST:
+		KBASE_HANDLE_IOCTL_IN(KBASE_IOCTL_APC_REQUEST,
+				kbase_api_apc_request,
+				struct kbase_ioctl_apc_request,
 				kfile);
 		break;
 	}
@@ -1787,6 +1837,20 @@ static long kbase_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	return -ENOIOCTLCMD;
 }
 
+long kbase_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
+{
+	struct pm_qos_request req = {
+		.cpus_affine = ATOMIC_INIT(BIT(raw_smp_processor_id()))
+	};
+	long ret;
+
+	pm_qos_add_request(&req, PM_QOS_CPU_DMA_LATENCY, 100);
+	ret = __kbase_ioctl(filp, cmd, arg);
+	pm_qos_remove_request(&req);
+
+	return ret;
+}
+
 static ssize_t kbase_read(struct file *filp, char __user *buf, size_t count, loff_t *f_pos)
 {
 	struct kbase_file *const kfile = filp->private_data;
@@ -1847,14 +1911,23 @@ static unsigned int kbase_poll(struct file *filp, poll_table *wait)
 	return 0;
 }
 
-void kbase_event_wakeup(struct kbase_context *kctx)
+void _kbase_event_wakeup(struct kbase_context *kctx, bool sync)
 {
 	KBASE_DEBUG_ASSERT(kctx);
 
-	wake_up_interruptible(&kctx->event_queue);
+        if(sync) {
+	    dev_dbg(kctx->kbdev->dev,
+                    "Waking event queue for context %pK (sync)\n", (void *)kctx);
+	    wake_up_interruptible_sync(&kctx->event_queue);
+        }
+        else {
+	    dev_dbg(kctx->kbdev->dev,
+                    "Waking event queue for context %pK (nosync)\n",(void *)kctx);
+	    wake_up_interruptible(&kctx->event_queue);
+        }
 }
 
-KBASE_EXPORT_TEST_API(kbase_event_wakeup);
+KBASE_EXPORT_TEST_API(_kbase_event_wakeup);
 
 int kbase_event_pending(struct kbase_context *ctx)
 {
@@ -2006,6 +2079,11 @@ static ssize_t set_policy(struct device *dev, struct device_attribute *attr, con
 		dev_err(dev, "power_policy: policy not found\n");
 		return -EINVAL;
 	}
+
+	if (sysfs_streq(buf, "always_on"))
+		gpu_always_on = true;
+	else
+		gpu_always_on = false;
 
 	kbase_pm_set_policy(kbdev, new_policy);
 
@@ -2904,7 +2982,8 @@ static ssize_t set_pm_poweroff(struct device *dev,
 
 	stt = &kbdev->pm.backend.shader_tick_timer;
 	stt->configured_interval = HR_TIMER_DELAY_NSEC(gpu_poweroff_time);
-	stt->configured_ticks = poweroff_shader_ticks;
+	stt->default_ticks = poweroff_shader_ticks;
+	stt->configured_ticks = stt->default_ticks;
 
 	spin_unlock_irqrestore(&kbdev->hwaccess_lock, flags);
 
@@ -2942,7 +3021,7 @@ static ssize_t show_pm_poweroff(struct device *dev,
 	stt = &kbdev->pm.backend.shader_tick_timer;
 	ret = scnprintf(buf, PAGE_SIZE, "%llu %u 0\n",
 			ktime_to_ns(stt->configured_interval),
-			stt->configured_ticks);
+			stt->default_ticks);
 
 	spin_unlock_irqrestore(&kbdev->hwaccess_lock, flags);
 

@@ -373,6 +373,7 @@ static int decon_vsync_thread(void *data)
 
 int decon_create_vsync_thread(struct decon_device *decon)
 {
+	struct sched_param param = { .sched_priority = 20 };
 	int ret = 0;
 	char name[16];
 
@@ -396,6 +397,7 @@ int decon_create_vsync_thread(struct decon_device *decon)
 		goto err;
 	}
 
+	sched_setscheduler_nocheck(decon->vsync.thread, SCHED_FIFO, &param);
 	return 0;
 
 err:
@@ -856,7 +858,7 @@ int decon_enter_hiber(struct decon_device *decon)
 
 	decon_hiber_trig_reset(decon);
 
-	flush_kthread_worker(&decon->up.worker);
+	kthread_flush_worker(&decon->up.worker);
 
 	decon_to_psr_info(decon, &psr);
 	decon_reg_set_int(decon->id, &psr, 0);
@@ -885,7 +887,9 @@ int decon_enter_hiber(struct decon_device *decon)
 		decon_dpp_stop(decon, false);
 	}
 
+#if defined(CONFIG_EXYNOS7885_BTS)
 	decon->bts.ops->bts_release_bw(decon);
+#endif
 
 	decon->state = DECON_STATE_HIBER;
 

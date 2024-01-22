@@ -176,7 +176,6 @@ static int do_cpu_hotplug(bool fast_hotplug)
 {
 	int ret = 0;
 	struct cpumask disable_cpus, enable_cpus;
-	char cpus_buf[10];
 	int (*func_cpu_down)(const struct cpumask *);
 	int (*func_cpu_up)(const struct cpumask *);
 
@@ -223,11 +222,6 @@ static int do_cpu_hotplug(bool fast_hotplug)
 		}
 	}
 #endif
-
-	scnprintf(cpus_buf, sizeof(cpus_buf), "%*pbl", cpumask_pr_args(&enable_cpus));
-	pr_debug("%s: enable_cpus=%s\n", __func__, cpus_buf);
-	scnprintf(cpus_buf, sizeof(cpus_buf), "%*pbl", cpumask_pr_args(&disable_cpus));
-	pr_debug("%s: disable_cpus=%s\n", __func__, cpus_buf);
 
 	/* select function of cpu hotplug */
 	if (fast_hotplug) {
@@ -315,7 +309,11 @@ static int cpu_hotplug_qos_handler(struct notifier_block *b,
 	return do_cpu_hotplug(false);
 }
 
-static struct notifier_block cpu_hotplug_qos_notifier = {
+static struct notifier_block cpu_hotplug_min_qos_notifier = {
+	.notifier_call = cpu_hotplug_qos_handler,
+};
+
+static struct notifier_block cpu_hotplug_max_qos_notifier = {
 	.notifier_call = cpu_hotplug_qos_handler,
 };
 
@@ -448,8 +446,8 @@ static void __init cpu_hotplug_pm_qos_init(void)
 	unsigned int default_min = cpumask_weight(&early_cpu_mask);
 
 	/* Register PM QoS notifier handler */
-	pm_qos_add_notifier(PM_QOS_CPU_ONLINE_MIN, &cpu_hotplug_qos_notifier);
-	pm_qos_add_notifier(PM_QOS_CPU_ONLINE_MAX, &cpu_hotplug_qos_notifier);
+	pm_qos_add_notifier(PM_QOS_CPU_ONLINE_MIN, &cpu_hotplug_min_qos_notifier);
+	pm_qos_add_notifier(PM_QOS_CPU_ONLINE_MAX, &cpu_hotplug_max_qos_notifier);
 
 	/* Guarantee all CPUs running during booting time */
 	pm_qos_add_request(&boot_min_cpu_hotplug_request,

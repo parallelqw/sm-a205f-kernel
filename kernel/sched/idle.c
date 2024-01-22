@@ -15,6 +15,9 @@
 
 #include "sched.h"
 
+/* Linker adds these: start and end of __cpuidle functions */
+extern char __cpuidle_text_start[], __cpuidle_text_end[];
+
 /**
  * sched_idle_set_state - Record idle state for the current CPU.
  * @idle_state: State to record.
@@ -52,7 +55,7 @@ static int __init cpu_idle_nopoll_setup(char *__unused)
 __setup("hlt", cpu_idle_nopoll_setup);
 #endif
 
-static inline int cpu_idle_poll(void)
+static noinline int __cpuidle cpu_idle_poll(void)
 {
 	rcu_idle_enter();
 	trace_cpu_idle_rcuidle(0, smp_processor_id());
@@ -83,7 +86,7 @@ void __weak arch_cpu_idle(void)
  *
  * To use when the cpuidle framework cannot be used.
  */
-void default_idle_call(void)
+void __cpuidle default_idle_call(void)
 {
 	if (current_clr_polling_and_test()) {
 		local_irq_enable();
@@ -166,11 +169,13 @@ static void cpuidle_idle_call(void)
 	 * timekeeping to prevent timer interrupts from kicking us out of idle
 	 * until a proper wakeup interrupt happens.
 	 */
-	if (idle_should_freeze()) {
-		entered_state = cpuidle_enter_freeze(drv, dev);
-		if (entered_state >= 0) {
-			local_irq_enable();
-			goto exit_idle;
+	if (idle_should_freeze() || dev->use_deepest_state) {
+		if (idle_should_freeze()) {
+			entered_state = cpuidle_enter_freeze(drv, dev);
+			if (entered_state > 0) {
+				local_irq_enable();
+				goto exit_idle;
+			}
 		}
 
 		next_state = cpuidle_find_deepest_state(drv, dev);
@@ -221,7 +226,6 @@ static void cpu_idle_loop(void)
 		 */
 
 		__current_set_polling();
-		quiet_vmstat();
 		tick_nohz_idle_enter();
 
 		while (!need_resched()) {
@@ -276,9 +280,20 @@ static void cpu_idle_loop(void)
 		 */
 		smp_mb__after_atomic();
 
+		/*
+		 * RCU relies on this call to be done outside of an RCU read-side
+		 * critical section.
+		 */
+		flush_smp_call_function_from_idle();
 		sched_ttwu_pending();
 		schedule_preempt_disabled();
 	}
+}
+
+bool cpu_in_idle(unsigned long pc)
+{
+	return pc >= (unsigned long)__cpuidle_text_start &&
+		pc < (unsigned long)__cpuidle_text_end;
 }
 
 void cpu_startup_entry(enum cpuhp_state state)

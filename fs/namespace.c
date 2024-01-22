@@ -14,6 +14,7 @@
 #include <linux/mnt_namespace.h>
 #include <linux/user_namespace.h>
 #include <linux/namei.h>
+#include <linux/delay.h>
 #include <linux/security.h>
 #include <linux/idr.h>
 #include <linux/init.h>		/* init_rootfs */
@@ -571,9 +572,13 @@ int __mnt_want_write(struct vfsmount *m)
 #ifdef CONFIG_RKP_NS_PROT
 	while (ACCESS_ONCE(mnt->mnt->mnt_flags) & MNT_WRITE_HOLD)
 #else
-	while (ACCESS_ONCE(mnt->mnt.mnt_flags) & MNT_WRITE_HOLD)
+	while (ACCESS_ONCE(mnt->mnt.mnt_flags) & MNT_WRITE_HOLD) {
+		preempt_enable();
+ 		cpu_relax();
+		preempt_disable();
+	}
 #endif
-		cpu_relax();
+
 	/*
 	 * After the slowpath clears MNT_WRITE_HOLD, mnt_is_readonly will
 	 * be set to match its requirements. So we must not load that until
@@ -1584,7 +1589,7 @@ static void mntput_no_expire(struct mount *mnt)
 			}
 		}
 		if (llist_add(&mnt->mnt_llist, &delayed_mntput_list)) {
-			schedule_delayed_work(&delayed_mntput_work, 1);
+			queue_delayed_work(system_power_efficient_wq, &delayed_mntput_work, 1);
 			sys_umount_trace_set_status(UMOUNT_STATUS_ADD_DELAYED_WORK);
 		}
 		return;

@@ -31,6 +31,7 @@
 #include <linux/module.h>
 #include <linux/of_gpio.h>
 #include <linux/platform_device.h>
+#include <linux/pm_qos.h>
 #include <linux/regulator/consumer.h>
 #include <linux/slab.h>
 #include <linux/time.h>
@@ -38,6 +39,11 @@
 #include <linux/vmalloc.h>
 #include <linux/wakelock.h>
 #include <linux/workqueue.h>
+
+#if defined(CONFIG_FB)
+#include <linux/notifier.h>
+#include <linux/fb.h>
+#endif
 
 #if defined(CONFIG_TRUSTONIC_TRUSTED_UI)
 #include <linux/t-base-tui.h>
@@ -131,6 +137,7 @@
 #define SEC_TS_FW_BLK_SIZE_MAX		(512)
 #define SEC_TS_FW_BLK_SIZE_DEFAULT	(256)
 #define SEC_TS_SELFTEST_REPORT_SIZE	80
+#define SEC_TS_PRESSURE_MAX		0x3f
 
 #define I2C_WRITE_BUFFER_SIZE		(256 - 1) /* 10 */
 
@@ -653,6 +660,10 @@ struct sec_ts_data {
 	volatile bool input_closed;
 	volatile bool abc_err_flag;
 
+#if defined(CONFIG_FB)
+	struct notifier_block fb_notif;
+#endif
+
 	int touch_count;
 	int tx_count;
 	int rx_count;
@@ -672,6 +683,8 @@ struct sec_ts_data {
 	struct mutex i2c_mutex;
 	struct mutex eventlock;
 	struct mutex modechange;
+
+	struct pm_qos_request pm_qos_req;
 
 	struct delayed_work work_read_info;
 #ifdef USE_POWER_RESET_WORK

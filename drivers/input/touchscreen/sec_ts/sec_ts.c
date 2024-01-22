@@ -39,6 +39,13 @@ static void sec_ts_input_close(struct input_dev *dev);
 extern void epen_disable_mode(int mode);
 #endif
 
+#if defined(CONFIG_FB)
+static int touch_fb_notifier_callback(struct notifier_block *self,
+		unsigned long event, void *data);
+extern int input_enable_device(struct input_dev *dev);
+extern int input_disable_device(struct input_dev *dev);
+#endif
+
 int sec_ts_read_information(struct sec_ts_data *ts);
 
 #ifdef CONFIG_SECURE_TOUCH
@@ -1099,7 +1106,8 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 				ts->coord[t_id].action = p_event_coord->tchsta;
 				ts->coord[t_id].x = (p_event_coord->x_11_4 << 4) | (p_event_coord->x_3_0);
 				ts->coord[t_id].y = (p_event_coord->y_11_4 << 4) | (p_event_coord->y_3_0);
-				ts->coord[t_id].z = p_event_coord->z & 0x3F;
+				ts->coord[t_id].z = p_event_coord->z &
+							SEC_TS_PRESSURE_MAX;
 				ts->coord[t_id].ttype = p_event_coord->ttype_3_2 << 2 | p_event_coord->ttype_1_0 << 0;
 				ts->coord[t_id].major = p_event_coord->major;
 				ts->coord[t_id].minor = p_event_coord->minor;
@@ -1391,11 +1399,16 @@ static irqreturn_t sec_ts_irq_thread(int irq, void *ptr)
 	}
 #endif
 
+	/* prevent CPU from entering deep sleep */
+	pm_qos_update_request(&ts->pm_qos_req, 100);
+
 	mutex_lock(&ts->eventlock);
 
 	sec_ts_read_event(ts);
 
 	mutex_unlock(&ts->eventlock);
+
+	pm_qos_update_request(&ts->pm_qos_req, PM_QOS_DEFAULT_VALUE);
 
 	return IRQ_HANDLED;
 }
@@ -1840,9 +1853,7 @@ static int sec_ts_parse_dt(struct i2c_client *client)
 	pdata->support_dex = of_property_read_bool(np, "support_dex_mode");
 	pdata->use_ic_resolution = of_property_read_bool(np, "sec,use_ic_resolution");
 
-#ifdef CONFIG_SEC_FACTORY
 	pdata->support_mt_pressure = true;
-#endif
 
 	input_err(true, &client->dev, "%s: i2c buffer limit: %d, lcd_id:%06X, bringup:%d, FW:%s(%d), id:%d,%d, mis_cal:%d dex:%d, gesture:%d pressure:%s\n",
 		__func__, pdata->i2c_burstmax, lcdtype, pdata->bringup, pdata->firmware_name,
@@ -2048,7 +2059,8 @@ static void sec_ts_set_input_prop(struct sec_ts_data *ts, struct input_dev *dev,
 	input_set_abs_params(dev, ABS_MT_TOUCH_MINOR, 0, 255, 0, 0);
 	input_set_abs_params(dev, ABS_MT_CUSTOM, 0, 0xFFFF, 0, 0);
 	if (ts->plat_data->support_mt_pressure)
-		input_set_abs_params(dev, ABS_MT_PRESSURE, 0, 255, 0, 0);
+		input_set_abs_params(dev, ABS_MT_PRESSURE, 0,
+					SEC_TS_PRESSURE_MAX, 0, 0);
 
 	if (propbit == INPUT_PROP_POINTER)
 		input_mt_init_slots(dev, MAX_SUPPORT_TOUCH_COUNT, INPUT_MT_POINTER);
@@ -2223,6 +2235,9 @@ static int sec_ts_probe(struct i2c_client *client, const struct i2c_device_id *i
 				"%s: TOUCH DEVICE ID : %02X, %02X, %02X, %02X, %02X\n", __func__,
 				deviceID[0], deviceID[1], deviceID[2], deviceID[3], deviceID[4]);
 
+	pm_qos_add_request(&ts->pm_qos_req, PM_QOS_CPU_DMA_LATENCY,
+		PM_QOS_DEFAULT_VALUE);
+
 	ret = sec_ts_i2c_read(ts, SEC_TS_READ_FIRMWARE_INTEGRITY, &result, 1);
 	if (ret < 0) {
 		input_err(true, &ts->client->dev, "%s: failed to integrity check (%d)\n", __func__, ret);
@@ -2340,6 +2355,16 @@ static int sec_ts_probe(struct i2c_client *client, const struct i2c_device_id *i
 			__func__, client->irq);
 #endif
 
+#ifdef CONFIG_FB
+	ts->fb_notif.notifier_call = touch_fb_notifier_callback;
+	ret = fb_register_client(&ts->fb_notif);
+	if (ret < 0) {
+		input_err(true, &ts->client->dev, "%s: Failed to register fb client\n",
+			__func__);
+		goto err_fb_client;
+	}
+#endif
+
 	/* need remove below resource @ remove driver */
 #if !defined(CONFIG_SAMSUNG_PRODUCT_SHIP)
 	sec_ts_raw_device_init(ts);
@@ -2386,7 +2411,13 @@ static int sec_ts_probe(struct i2c_client *client, const struct i2c_device_id *i
 	sec_ts_fn_remove(ts);
 	free_irq(client->irq, ts);
 #endif
+#ifdef CONFIG_FB
+	fb_unregister_client(&ts->fb_notif);
+
+err_fb_client:
+#endif
 err_irq:
+	pm_qos_remove_request(&ts->pm_qos_req);
 	if (ts->plat_data->support_dex) {
 		input_unregister_device(ts->input_dev_pad);
 		ts->input_dev_pad = NULL;
@@ -2564,6 +2595,8 @@ static void sec_ts_reset_work(struct work_struct *work)
 #endif
 	ts->reset_is_on_going = true;
 	input_info(true, &ts->client->dev, "%s\n", __func__);
+
+
 
 	sec_ts_stop_device(ts);
 
@@ -2825,6 +2858,14 @@ static int sec_ts_remove(struct i2c_client *client)
 	free_irq(ts->client->irq, ts);
 	input_info(true, &ts->client->dev, "%s: irq disabled\n", __func__);
 
+	pm_qos_remove_request(&ts->pm_qos_req);
+
+#if defined(CONFIG_FB)
+	if (fb_unregister_client(&ts->fb_notif))
+		input_info(true, &ts->client->dev,
+			"%s: Error occured while unregistering fb_notifier.\n", __func__);
+#endif
+
 #ifdef USE_POWER_RESET_WORK
 	cancel_delayed_work_sync(&ts->reset_work);
 	flush_delayed_work(&ts->reset_work);
@@ -3059,6 +3100,27 @@ static int sec_ts_pm_resume(struct device *dev)
 
 	return 0;
 }
+
+#if defined(CONFIG_FB)
+static int touch_fb_notifier_callback(struct notifier_block *self,
+		unsigned long event, void *data)
+{
+	struct sec_ts_data *ts =
+		container_of(self, struct sec_ts_data, fb_notif);
+	struct fb_event *ev = (struct fb_event *)data;
+
+	if (ev && ev->data && event == FB_EVENT_BLANK) {
+		int *blank = (int *)ev->data;
+
+		if (*blank == FB_BLANK_UNBLANK)
+			input_enable_device(ts->input_dev);
+		else
+			input_disable_device(ts->input_dev);
+	}
+
+	return 0;
+}
+#endif
 #endif
 
 #ifdef CONFIG_TRUSTONIC_TRUSTED_UI

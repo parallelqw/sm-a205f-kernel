@@ -255,7 +255,7 @@ static int update_freq(struct exynos_cpufreq_domain *domain,
 		return 0;
 	}
 
-	ret = __cpufreq_driver_target(policy, freq, CPUFREQ_RELATION_H);
+	ret = __cpufreq_driver_target(policy, freq, CPUFREQ_RELATION_L); // default H
 	cpufreq_cpu_put(policy);
 
 	return ret;
@@ -1198,6 +1198,11 @@ static __init int init_domain(struct exynos_cpufreq_domain *domain,
 		domain->min_freq = val;
 #endif
 	}
+
+	// Disable 1794000 as it's causing issues.
+	if (domain->max_freq == 1794000) {
+		domain->max_freq = 1690000;
+ 	}
 
 	domain->boot_freq = cal_dfs_get_boot_freq(domain->cal_id);
 	domain->resume_freq = cal_dfs_get_resume_freq(domain->cal_id);

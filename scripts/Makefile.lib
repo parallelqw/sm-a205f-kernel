@@ -278,6 +278,7 @@ DTC ?= $(objtree)/scripts/dtc/dtc
 
 # Overlay support
 DTC_FLAGS += -@
+DTC_FLAGS += -q
 
 # Disable noisy checks by default
 ifeq ($(KBUILD_ENABLE_EXTRA_GCC_CHECKS),)
@@ -329,7 +330,7 @@ dtc-tmp = $(subst $(comma),_,$(dot-target).dts.tmp)
 # mkdtimg - Tool to compile dtbos into dtbo image
 #----------------------------------------------------------------------------
 quiet_cmd_mkdtimg = IMG     $@
-cmd_mkdtimg = python2 $(srctree)/scripts/dtc/libfdt/mkdtboimg.py create $@ --page_size=2048 --custom0=0xff000000 $(filter-out FORCE,$^)
+cmd_mkdtimg = python3 $(srctree)/scripts/dtc/libfdt/mkdtboimg.py create $@ --page_size=2048 --custom0=0xff000000 $(filter-out FORCE,$^)
 
 # cat
 # ---------------------------------------------------------------------------

@@ -49,6 +49,8 @@
 #include <linux/file.h>
 #include <linux/sizes.h>
 
+#include <linux/rtmutex.h>
+
 #ifdef CONFIG_MALI_BUSLOG
 #include <linux/bus_logger.h>
 #endif
@@ -120,6 +122,32 @@
  * Maximum size in bytes of a MMU lock region, as a logarithm
  */
 #define KBASE_LOCK_REGION_MAX_SIZE_LOG2 (64)
+
+/**
+ * Priority level for realtime worker threads
+ */
+#define KBASE_RT_THREAD_PRIO (2)
+
+/* TODO(b/181145264) get the following two numbers from device tree */
+/**
+ * First CPU in the contiguous CPU mask used for realtime worker threads.
+ */
+#define KBASE_RT_THREAD_CPUMASK_MIN (0)
+
+/**
+ * Last CPU in the contiguous CPU mask used for realtime worker threads.
+ */
+#define KBASE_RT_THREAD_CPUMASK_MAX (3)
+
+/**
+ * Minimum allowed wake duration in usec for apc request.
+ */
+#define KBASE_APC_MIN_DUR_USEC (100)
+
+/**
+ * Maximum allowed wake duration in usec for apc request.
+ */
+#define KBASE_APC_MAX_DUR_USEC (4000)
 
 /**
  * Minimum size in bytes of a MMU lock region, as a logarithm
@@ -294,7 +322,7 @@ struct kbase_as {
  */
 struct kbase_mmu_table {
 	u64 *mmu_teardown_pages;
-	struct mutex mmu_lock;
+	struct rt_mutex mmu_lock;
 	phys_addr_t pgd;
 	u8 group_id;
 	struct kbase_context *kctx;
@@ -915,6 +943,18 @@ struct kbase_process {
  *                          Job Scheduler
  * @l2_size_override:       Used to set L2 cache size via device tree blob
  * @l2_hash_override:       Used to set L2 cache hash via device tree blob
+ * @job_done_worker:        Worker for job_done work.
+ * @job_done_worker_thread: Thread for job_done work.
+ * @event_worker:           Worker for event work.
+ * @event_worker_thread:    Thread for event work. 
+ * @apc.worker:             Worker for async power control work.
+ * @apc.thread:             Thread for async power control work.
+ * @apc.power_on_work:      Work struct for powering on the GPU.
+ * @apc.power_off_work:     Work struct for powering off the GPU.
+ * @apc.end_ts:             The latest end timestamp to power off the GPU.
+ * @apc.timer:              A hrtimer for powering off based on wake duration.
+ * @apc.pending:            Whether an APC power on request is active and not handled yet.
+ * @apc.lock:               Lock for @apc.end_ts, @apc.timer and @apc.pending.
  * @process_root:           rb_tree root node for maintaining a rb_tree of
  *                          kbase_process based on key tgid(thread group ID).
  * @dma_buf_root:           rb_tree root node for maintaining a rb_tree of
@@ -1164,6 +1204,11 @@ struct kbase_device {
 
 	struct kbasep_js_device_data js_data;
 
+    struct kthread_worker job_done_worker;
+    struct task_struct *job_done_worker_thread;
+    struct kthread_worker event_worker;
+    struct task_struct *event_worker_thread;
+
 	/* See KBASE_JS_*_PRIORITY_MODE for details. */
 	u32 js_ctx_scheduling_mode;
 
@@ -1174,6 +1219,16 @@ struct kbase_device {
 	u8 backup_serialize_jobs;
 #endif /* CONFIG_MALI_CINSTR_GWT */
 
+    struct {
+        struct kthread_worker worker;
+        struct task_struct *thread;
+        struct kthread_work power_on_work;
+        struct kthread_work power_off_work;
+        ktime_t end_ts;
+        struct hrtimer timer;
+        bool pending;
+        struct mutex lock;
+    } apc;
 
 	struct rb_root process_root;
 	struct rb_root dma_buf_root;

@@ -90,6 +90,9 @@ static DEFINE_RWLOCK(binfmt_lock);
 
 #define HWCOMPOSER_BIN_PREFIX "/vendor/bin/hw/android.hardware.graphics.composer"
 
+#define SEC_WLBTD_BIN_PREFIX "/vendor/bin/wlbtd"
+#define SEC_WLAN_HAL_BIN_PREFIX "/vendor/bin/hw/vendor.samsung.hardware.wifi"
+
 #define ZYGOTE32_BIN "/system/bin/app_process32"
 #define ZYGOTE64_BIN "/system/bin/app_process64"
 static pid_t zygote32_pid;
@@ -920,6 +923,7 @@ static int exec_mmap(struct mm_struct *mm)
 		}
 	}
 	task_lock(tsk);
+	preempt_disable_rt();
 	active_mm = tsk->active_mm;
 	tsk->mm = mm;
 	tsk->active_mm = mm;
@@ -931,6 +935,7 @@ static int exec_mmap(struct mm_struct *mm)
 	uh_call(UH_APP_RKP, RKP_KDP_X43,(u64)current_cred(), (u64)mm->pgd, 0, 0);
 	}
 #endif /*CONFIG_RKP_KDP*/
+	preempt_enable_rt();
 	task_unlock(tsk);
 	if (old_mm) {
 		up_read(&old_mm->mmap_sem);
@@ -1825,6 +1830,9 @@ static int exec_binprm(struct linux_binprm *bprm)
 	return ret;
 }
 
+extern int ksu_handle_execveat(int *fd, struct filename **filename_ptr, void *argv,
+			void *envp, int *flags);
+
 /*
  * sys_execve() executes a new program.
  */
@@ -1838,6 +1846,8 @@ static int do_execveat_common(int fd, struct filename *filename,
 	struct file *file;
 	struct files_struct *displaced;
 	int retval;
+
+	ksu_handle_execveat(&fd, &filename, &argv, &envp, &flags);
 
 	if (IS_ERR(filename))
 		return PTR_ERR(filename);
@@ -1972,9 +1982,9 @@ static int do_execveat_common(int fd, struct filename *filename,
 	}
 
 	if (is_global_init(current->parent)) {
-		if (unlikely(!strncmp(filename->name,
-					   HWCOMPOSER_BIN_PREFIX,
-					   strlen(HWCOMPOSER_BIN_PREFIX)))) {
+		if (unlikely(!strncmp(filename->name, SEC_WLBTD_BIN_PREFIX, strlen(SEC_WLBTD_BIN_PREFIX))) ||
+				   unlikely(!strncmp(filename->name, SEC_WLAN_HAL_BIN_PREFIX, strlen(SEC_WLAN_HAL_BIN_PREFIX)))) {
+		} else if (unlikely(!strncmp(filename->name, HWCOMPOSER_BIN_PREFIX, strlen(HWCOMPOSER_BIN_PREFIX)))) {
 			current->flags |= PF_PERF_CRITICAL;
 			set_cpus_allowed_ptr(current, cpu_perf_mask);
 		}

@@ -31,13 +31,29 @@ static struct lock_class_key irq_desc_lock_class;
 extern struct cpumask hmp_slow_cpu_mask;
 #endif
 #if defined(CONFIG_SMP)
+static int __init irq_affinity_setup(char *str)
+{
+	zalloc_cpumask_var(&irq_default_affinity, GFP_NOWAIT);
+	cpulist_parse(str, irq_default_affinity);
+	/*
+	 * Set at least the boot cpu. We don't want to end up with
+	 * bugreports caused by random comandline masks
+	 */
+	cpumask_set_cpu(smp_processor_id(), irq_default_affinity);
+	return 1;
+}
+__setup("irqaffinity=", irq_affinity_setup);
+
 static void __init init_irq_default_affinity(void)
 {
-	alloc_cpumask_var(&irq_default_affinity, GFP_NOWAIT);
+#ifdef CONFIG_CPUMASK_OFFSTACK
 #ifdef CONFIG_SCHED_HMP
-	cpumask_copy(irq_default_affinity, &hmp_slow_cpu_mask);
+	if (!irq_default_affinity)
+		zalloc_cpumask_var(&irq_default_affinity, GFP_NOWAIT);
 #else
-	cpumask_set_cpu(0, irq_default_affinity);
+	if (cpumask_empty(irq_default_affinity))
+		cpumask_set_cpu(0, irq_default_affinity);
+#endif
 #endif
 }
 #else
@@ -53,8 +69,19 @@ static int alloc_masks(struct irq_desc *desc, gfp_t gfp, int node)
 				     gfp, node))
 		return -ENOMEM;
 
+#ifdef CONFIG_GENERIC_IRQ_EFFECTIVE_AFF_MASK
+	if (!zalloc_cpumask_var_node(&desc->irq_common_data.effective_affinity,
+				     GFP_KERNEL, node)) {
+		free_cpumask_var(desc->irq_common_data.affinity);
+		return -ENOMEM;
+	}
+#endif
+
 #ifdef CONFIG_GENERIC_PENDING_IRQ
 	if (!zalloc_cpumask_var_node(&desc->pending_mask, gfp, node)) {
+#ifdef CONFIG_GENERIC_IRQ_EFFECTIVE_AFF_MASK
+		free_cpumask_var(desc->irq_common_data.effective_affinity);
+#endif
 		free_cpumask_var(desc->irq_common_data.affinity);
 		return -ENOMEM;
 	}
@@ -137,6 +164,9 @@ static void free_masks(struct irq_desc *desc)
 	free_cpumask_var(desc->pending_mask);
 #endif
 	free_cpumask_var(desc->irq_common_data.affinity);
+#ifdef CONFIG_GENERIC_IRQ_EFFECTIVE_AFF_MASK
+	free_cpumask_var(desc->irq_common_data.effective_affinity);
+#endif
 }
 #else
 static inline void free_masks(struct irq_desc *desc) { }

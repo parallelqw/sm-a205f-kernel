@@ -50,6 +50,7 @@
 #include "decon_notify.h"
 #include "../../../../staging/android/sw_sync.h"
 #include "dpp.h"
+#include <linux/devfreq_boost.h>
 
 #ifdef CONFIG_SAMSUNG_TUI
 #include "stui_inf.h"
@@ -58,12 +59,12 @@
 /*#define BRINGUP_DECON_BIST*/
 #define DECON_DEBUG_SFR 0x14860400
 
-int decon_log_level = 6;
+int decon_log_level = 0;
 module_param(decon_log_level, int, 0644);
 
-int dpu_bts_log_level = 6;
+int dpu_bts_log_level = 0;
 module_param(dpu_bts_log_level, int, 0644);
-int win_update_log_level = 6;
+int win_update_log_level = 0;
 module_param(win_update_log_level, int, 0644);
 
 struct decon_device *decon_drvdata[MAX_DECON_CNT] = {NULL, NULL, NULL};
@@ -331,7 +332,7 @@ int decon_tui_protection(bool tui_en)
 		mutex_lock(&decon->lock);
 		decon_hiber_block_exit(decon);
 		/* 2.Finish frmame update of normal OS */
-		flush_kthread_worker(&decon->up.worker);
+		kthread_flush_worker(&decon->up.worker);
 
 		if (decon->dt.psr_mode == DECON_VIDEO_MODE) {
 			struct decon_window_regs win_regs = {0, };
@@ -464,7 +465,7 @@ static int decon_enable(struct decon_device *decon)
 		goto err;
 	}
 
-	flush_kthread_worker(&decon->up.worker);
+	kthread_flush_worker(&decon->up.worker);
 
 #if defined(CONFIG_SEC_INCELL)
 	if (decon->esd_recovery == 1) {
@@ -516,8 +517,8 @@ static int decon_enable(struct decon_device *decon)
 	if (decon->dt.disp_freq)
 		decon->bts.ops->bts_update_qos_disp(decon, decon->dt.disp_freq);
 
-	pm_stay_awake(decon->dev);
-	dev_warn(decon->dev, "pm_stay_awake");
+	pm_wakeup_event(decon->dev, 500);
+	dev_warn(decon->dev, "wakelock held for 500ms");
 	ret = v4l2_subdev_call(decon->out_sd[0], video, s_stream, 1);
 	if (ret) {
 		decon_err("starting stream failed for %s\n",
@@ -596,7 +597,7 @@ static int decon_disable(struct decon_device *decon)
 		goto err;
 	}
 
-	flush_kthread_worker(&decon->up.worker);
+	kthread_flush_worker(&decon->up.worker);
 
 #if defined(CONFIG_SEC_INCELL)
 	if (decon->esd_recovery) {
@@ -666,8 +667,6 @@ static int decon_disable(struct decon_device *decon)
 		decon->bts.ops->bts_update_qos_disp(decon, 0);
 
 	if (decon->dt.out_type == DECON_OUT_DSI) {
-		pm_relax(decon->dev);
-		dev_warn(decon->dev, "pm_relax");
 	}
 
 	if (decon->dt.psr_mode != DECON_VIDEO_MODE) {
@@ -1033,9 +1032,6 @@ static unsigned int decon_map_ion_handle(struct decon_device *decon,
 		decon_err("iovmm_map() failed: %pa\n", &dma->dma_addr);
 		goto err_iovmm_map;
 	}
-
-	exynos_ion_sync_dmabuf_for_device(dev, dma->dma_buf, dma->dma_buf->size,
-			DMA_TO_DEVICE);
 
 	dma->ion_handle = ion_handle;
 
@@ -1879,6 +1875,7 @@ static int decon_set_win_config(struct decon_device *decon,
 
 	num_of_window = decon_get_active_win_count(decon, win_data);
 	if (num_of_window) {
+	    devfreq_boost_kick_max(DEVFREQ_EXYNOS_MIF, 70);
 		win_data->fence = decon_create_fence(decon, &fence, regs);
 		if (win_data->fence < 0)
 			goto err_prepare;
@@ -1907,7 +1904,7 @@ static int decon_set_win_config(struct decon_device *decon,
 	win_data->extra.remained_frames =
 		atomic_read(&decon->up.remaining_frame);
 	mutex_unlock(&decon->up.lock);
-	queue_kthread_work(&decon->up.worker, &decon->up.work);
+	kthread_queue_work(&decon->up.worker, &decon->up.work);
 
 	/**
 	 * The code is moved here because the DPU driver may get a wrong fd
@@ -2771,9 +2768,11 @@ static void decon_destroy_update_thread(struct decon_device *decon)
 
 static int decon_create_update_thread(struct decon_device *decon, char *name)
 {
+	struct sched_param param;
+
 	INIT_LIST_HEAD(&decon->up.list);
 	atomic_set(&decon->up.remaining_frame, 0);
-	init_kthread_worker(&decon->up.worker);
+	kthread_init_worker(&decon->up.worker);
 	decon->up.thread = kthread_run_perf_critical(kthread_worker_fn,
 			&decon->up.worker, name);
 	if (IS_ERR(decon->up.thread)) {
@@ -2781,7 +2780,10 @@ static int decon_create_update_thread(struct decon_device *decon, char *name)
 		decon_err("failed to run update_regs thread\n");
 		return PTR_ERR(decon->up.thread);
 	}
-	init_kthread_work(&decon->up.work, decon_update_regs_handler);
+
+	param.sched_priority = 2;
+	sched_setscheduler_nocheck(decon->up.thread, SCHED_NORMAL, &param);
+	kthread_init_work(&decon->up.work, decon_update_regs_handler);
 
 	return 0;
 }
@@ -2938,8 +2940,8 @@ static int decon_initial_display(struct decon_device *decon, bool is_colormap)
 
 	dsim = container_of(decon->out_sd[0], struct dsim_device, sd);
 	decon->version = dsim->version;
-	call_panel_ops(dsim, displayon, dsim);
 	decon_reg_start(decon->id, &psr);
+        call_panel_ops(dsim, displayon, dsim);
 	decon_wait_for_vsync(decon, VSYNC_TIMEOUT_MSEC);
 	if (decon_reg_wait_update_done_and_mask(decon->id, &psr,
 				SHADOW_UPDATE_TIMEOUT) < 0)
@@ -3069,8 +3071,8 @@ static int decon_probe(struct platform_device *pdev)
 			goto err_display;
 		}
 
-		pm_stay_awake(decon->dev);
-		dev_warn(decon->dev, "pm_stay_awake");
+	pm_wakeup_event(decon->dev, 500);
+	dev_warn(decon->dev, "wakelock held for 500ms");
 	}
 
 #ifndef CONFIG_EXYNOS_SUPPORT_FB_HANDOVER

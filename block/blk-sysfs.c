@@ -84,23 +84,6 @@ static ssize_t queue_ra_show(struct request_queue *q, char *page)
 static ssize_t
 queue_ra_store(struct request_queue *q, const char *page, size_t count)
 {
-	unsigned long ra_kb;
-	ssize_t ret;
-	static const char temp[] = "temporary ";
-
-	/* IOPP-ra-v2.0.4.4 */
-	if (strncmp(page, temp, sizeof(temp) - 1) != 0)
-		        return count;
-
-	page += sizeof(temp) - 1;
-
-	ret = queue_var_store(&ra_kb, page, count);
-
-	if (ret < 0)
-		return ret;
-
-	q->backing_dev_info.ra_pages = ra_kb >> (PAGE_CACHE_SHIFT - 10);
-
 	return count;
 }
 
@@ -264,8 +247,8 @@ queue_store_##name(struct request_queue *q, const char *page, size_t count) \
 }
 
 QUEUE_SYSFS_BIT_FNS(nonrot, NONROT, 1);
-QUEUE_SYSFS_BIT_FNS(random, ADD_RANDOM, 0);
-QUEUE_SYSFS_BIT_FNS(iostats, IO_STAT, 0);
+QUEUE_SYSFS_BIT_FNS(random, ADD_RANDOM, 1);
+QUEUE_SYSFS_BIT_FNS(iostats, IO_STAT, 1);
 #undef QUEUE_SYSFS_BIT_FNS
 
 static ssize_t queue_nomerges_show(struct request_queue *q, char *page)

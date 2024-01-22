@@ -11,7 +11,11 @@
 	#include <net/mptcp.h>
 #endif
 
-int sysctl_tcp_fastopen __read_mostly = TFO_CLIENT_ENABLE;
+int sysctl_tcp_fastopen __read_mostly = TFO_CLIENT_ENABLE |
+					TFO_SERVER_ENABLE |
+					TFO_CLIENT_NO_COOKIE |
+					TFO_SERVER_COOKIE_NOT_REQD |
+					TFO_SERVER_WO_SOCKOPT1;
 
 struct tcp_fastopen_context __rcu *tcp_fastopen_ctx;
 
@@ -247,6 +251,7 @@ static struct sock *tcp_fastopen_create_child(struct sock *sk,
 static bool tcp_fastopen_queue_check(struct sock *sk)
 {
 	struct fastopen_queue *fastopenq;
+	int max_qlen;
 
 	/* Make sure the listener has enabled fastopen, and we don't
 	 * exceed the max # of pending TFO requests allowed before trying
@@ -259,10 +264,11 @@ static bool tcp_fastopen_queue_check(struct sock *sk)
 	 * temporarily vs a server not supporting Fast Open at all.
 	 */
 	fastopenq = &inet_csk(sk)->icsk_accept_queue.fastopenq;
-	if (fastopenq->max_qlen == 0)
+	max_qlen = READ_ONCE(fastopenq->max_qlen);
+	if (max_qlen == 0)
 		return false;
 
-	if (fastopenq->qlen >= fastopenq->max_qlen) {
+	if (fastopenq->qlen >= max_qlen) {
 		struct request_sock *req1;
 		spin_lock(&fastopenq->lock);
 		req1 = fastopenq->rskq_rst_head;

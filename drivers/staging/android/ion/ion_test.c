@@ -53,19 +53,25 @@ static int ion_handle_test_dma(struct device *dev, struct dma_buf *dma_buf,
 	unsigned long offset_page;
 
 	attach = dma_buf_attach(dma_buf, dev);
-	if (IS_ERR(attach))
+	if (IS_ERR(attach)) {
+		dev_err(dev, "%s: failed to attach dmabuf (err %ld)\n",
+			__func__, PTR_ERR(attach));
 		return PTR_ERR(attach);
+	}
 
 	table = dma_buf_map_attachment(attach, dir);
-	if (IS_ERR(table))
+	if (IS_ERR(table)) {
+		dev_err(dev, "%s: failed to map dmabuf (err %ld)\n",
+			__func__, PTR_ERR(table));
 		return PTR_ERR(table);
+	}
 
 	offset_page = offset >> PAGE_SHIFT;
 	offset %= PAGE_SIZE;
 
 	for_each_sg_page(table->sgl, &sg_iter, table->nents, offset_page) {
 		struct page *page = sg_page_iter_page(&sg_iter);
-		void *vaddr = vmap(&page, 1, VM_MAP, pgprot);
+		void *vaddr = vm_map_ran(&page, 1, -1, pgprot);
 		size_t to_copy = PAGE_SIZE - offset;
 
 		to_copy = min(to_copy, size);
@@ -79,7 +85,7 @@ static int ion_handle_test_dma(struct device *dev, struct dma_buf *dma_buf,
 		else
 			ret = copy_to_user(ptr, vaddr + offset, to_copy);
 
-		vunmap(vaddr);
+		vm_unmap_ram(vaddr, 1);
 		if (ret) {
 			ret = -EFAULT;
 			goto err;
@@ -425,10 +431,22 @@ static struct platform_driver ion_test_platform_driver = {
 
 static int __init ion_test_init(void)
 {
-	ion_test_pdev = platform_device_register_simple("ion-test",
-							-1, NULL, 0);
+	struct platform_device_info pdevinfo = {
+		.parent = NULL,
+		.name = "ion-test",
+		.id = -1,
+		.res = NULL,
+		.num_res = 0,
+		.data = NULL,
+		.size_data = 0,
+		.dma_mask = DMA_BIT_MASK(36),
+	};
+
+	ion_test_pdev = platform_device_register_full(&pdevinfo);
 	if (IS_ERR(ion_test_pdev))
 		return PTR_ERR(ion_test_pdev);
+
+	arch_setup_dma_ops(&ion_test_pdev->dev, 0, 0x100000000ULL, NULL, false);
 
 	return platform_driver_probe(&ion_test_platform_driver, ion_test_probe);
 }

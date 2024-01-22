@@ -17,6 +17,7 @@
 #include <linux/pagemap.h>
 #include <linux/syscalls.h>
 #include <linux/file.h>
+#include <linux/mm_inline.h>
 
 #include "internal.h"
 
@@ -31,8 +32,6 @@ file_ra_state_init(struct file_ra_state *ra, struct address_space *mapping)
 	ra->prev_pos = -1;
 }
 EXPORT_SYMBOL_GPL(file_ra_state_init);
-
-#define list_to_page(head) (list_entry((head)->prev, struct page, lru))
 
 /*
  * see if a page needs releasing upon read_cache_pages() failure
@@ -64,7 +63,7 @@ static void read_cache_pages_invalidate_pages(struct address_space *mapping,
 	struct page *victim;
 
 	while (!list_empty(pages)) {
-		victim = list_to_page(pages);
+		victim = lru_to_page(pages);
 		list_del(&victim->lru);
 		read_cache_pages_invalidate_page(mapping, victim);
 	}
@@ -87,7 +86,7 @@ int read_cache_pages(struct address_space *mapping, struct list_head *pages,
 	int ret = 0;
 
 	while (!list_empty(pages)) {
-		page = list_to_page(pages);
+		page = lru_to_page(pages);
 		list_del(&page->lru);
 		if (add_to_page_cache_lru(page, mapping, page->index,
 				readahead_gfp_mask(mapping))) {
@@ -125,7 +124,7 @@ static int read_pages(struct address_space *mapping, struct file *filp,
 	}
 
 	for (page_idx = 0; page_idx < nr_pages; page_idx++) {
-		struct page *page = list_to_page(pages);
+		struct page *page = lru_to_page(pages);
 		list_del(&page->lru);
 		if (!add_to_page_cache_lru(page, mapping, page->index, gfp)) {
 			mapping->a_ops->readpage(filp, page);
@@ -160,6 +159,13 @@ int __do_page_cache_readahead(struct address_space *mapping, struct file *filp,
 	int ret = 0;
 	loff_t isize = i_size_read(inode);
 	gfp_t gfp_mask = readahead_gfp_mask(mapping);
+
+	/*
+	 * Do not perform a readahead if the requested size is less
+	 * than the minimum readahead value specified.
+	 */
+	if (nr_to_read < (VM_MIN_READAHEAD * 1024) / PAGE_SIZE)
+		goto out;
 
 	if (isize == 0)
 		goto out;
